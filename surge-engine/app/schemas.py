@@ -21,3 +21,7 @@ class SurgeResponse(BaseModel):
     multiplier: float
     surge_applied: bool
     reason: str
+
+class SurgeCalculation(BaseModel):
+    multiplier: float
+    reason: str

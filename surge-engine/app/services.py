@@ -2,6 +2,7 @@ import os
 import requests
 import datetime as dt
 from dotenv import load_dotenv
+from .schemas import WeatherData
 
 load_dotenv()
 
@@ -21,13 +22,15 @@ def fetch_weather_data(city: str):
         response.raise_for_status() 
         
         data = response.json()
-        return {
+        weather_dict = {
             "city": data["name"],
             "temperature": data["main"]["temp"],
             "condition": data["weather"][0]["main"], 
             "description": data["weather"][0]["description"],
             "timestamp": dt.datetime.fromtimestamp(data["dt"])
         }
+
+        return WeatherData(**weather_dict)
         
     except requests.exceptions.HTTPError as err:
         return {"error": f"HTTP Error: {err.response.status_code}", "msg": err.response.text}
