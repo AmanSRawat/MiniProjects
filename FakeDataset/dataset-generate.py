@@ -20,7 +20,8 @@ def generate_weather_data(num_records):
             "temperature": round(random.uniform(-10, 40), 2),  
             "condition": random.choice(conditions),
             "description": fake.sentence(),
-            "timestamp": fake.date_time_this_year()
+            "timestamp": fake.date_time_this_year(),
+            "surge": round(random.uniform(0, 3), 2)
         }
         data.append(record)
     

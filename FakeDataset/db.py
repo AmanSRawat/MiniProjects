@@ -10,12 +10,12 @@ def create_connection():
         host=os.getenv("DB_HOST", "localhost"),
         user=os.getenv("DB_USER", "root"),
         password=os.getenv("DB_PASSWORD"),
-        database=os.getenv("DB_NAME", "weatherdata")
+        database=os.getenv("DB_NAME", "weather_data")
     )
 
 data = pd.read_csv("fake_weather_data.csv")
 
-data_to_insert = data.values.tolist()
+data_to_insert = data[['city', 'temperature', 'condition', 'description', 'timestamp','surge']].values.tolist()
 
 connection = create_connection()
 conn = connection.cursor()
@@ -27,12 +27,13 @@ conn.execute("""
         temperature FLOAT, 
         `condition` VARCHAR(255), 
         description TEXT, 
-        timestamp DATETIME
+        timestamp DATETIME,
+        surge FLOAT
     )
 """)
 
 
-sql = "INSERT INTO weather (city, temperature, `condition`, description, timestamp) VALUES (%s, %s, %s, %s, %s)"
+sql = "INSERT INTO weather (city, temperature, `condition`, description, timestamp,surge) VALUES (%s, %s, %s, %s, %s,%s)"
 
 conn.executemany(sql, data_to_insert)
 

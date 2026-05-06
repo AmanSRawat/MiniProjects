@@ -1,0 +1,27 @@
+# Data Manipulation & Math
+pandas
+numpy
+
+# Database Connectivity
+sqlalchemy
+pymysql
+mysql-connector-python
+dotenv
+
+# Machine Learning & Modeling
+scikit-learn
+xgboost
+mlflow
+great_expectations
+
+# Visualization & Analysis (for EDA)
+matplotlib
+seaborn
+
+# Environment & Notebook Support
+python-dotenv
+jupyterlab
+ipykernel
+
+# Serialization
+joblib
