@@ -1,0 +1,31 @@
+FROM python:3.11-slim
+
+# Set the working directory
+WORKDIR /app
+
+# Copy the requirements file and install dependencies
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --upgrade pip \  
+    && pip install -r requirements.txt
+
+# Copy the application code
+COPY . .
+
+# Explecitly copy the model file in case .dockerignore is not configured correctly
+COPY src/app/serving/models /app/src/app/serving/models
+
+# Copy MLflow run (artifacts + metadata) to the flat /app/model convenience path
+COPY src/app/serving/models/m-01b4952796864553836c6f1a697e0f80 /app/model
+COPY src/app/serving/models/m-34b24b7bd0894f749fc228fab54073f8 /app/model
+
+# Set environment variables (can be overridden at runtime)
+  ENV MLFLOW_TRACKING_URI=sqlite:///mlflow.db
+  ENV PYTHONUNBUFFERED=1
+
+# Expose the port for the FastAPI app
+EXPOSE 8000
+
+# Run the FastAPI app using Uvicorn
+CMD ["python", "-m","uvicorn","src.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
