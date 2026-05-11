@@ -22,8 +22,9 @@ def main():
     Main pipeline execution function that orchestrates the ML workflow
     using existing modular code from the src directory.
     """
+    mlflow.set_tracking_uri("sqlite:///mlflow.db") 
     # Set up MLflow experiment
-    mlflow.set_experiment("surge_prediction")
+    mlflow.set_experiment("surge prediction")
 
     with mlflow.start_run(run_name=f"surge_pipeline_{datetime.now().strftime('%Y%m%d_%H%M%S')}"):
         try:

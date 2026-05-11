@@ -25,3 +25,7 @@ ipykernel
 
 # Serialization
 joblib
+
+# Web Framework
+fastapi
+uvicorn
