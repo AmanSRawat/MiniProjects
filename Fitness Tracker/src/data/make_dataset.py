@@ -59,9 +59,9 @@ data_merged.columns =[
     "gyro_x",
     "gyro_y",  
     "gyro_z",
+    "participant",
     "label",
     "category",
-    "participant",
     "set"
 ]
 
@@ -78,9 +78,9 @@ sampling = {
     "gyro_x":"mean",
     "gyro_y":"mean",  
     "gyro_z":"mean",
+    "participant":"last",
     "label":"last",
     "category":"last",
-    "participant":"last",
     "set":"last"
 }
 
