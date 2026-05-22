@@ -28,4 +28,4 @@ COPY src/app/serving/models/m-34b24b7bd0894f749fc228fab54073f8 /app/model
 EXPOSE 8000
 
 # Run the FastAPI app using Uvicorn
-CMD ["python", "-m","uvicorn","src.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "src.app.main:app", "--host", "0.0.0.0", "--port", "8000"]

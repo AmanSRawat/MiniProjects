@@ -1,0 +1,2697 @@
+● COMPLETE MACHINE LEARNING STRATEGY FOR SIGMA_CABS.DATASET
+
+  Industry-Level Project Blueprint for Taxi Operations Analytics
+
+  ---
+  1. PROBLEM UNDERSTANDING
+
+  Dataset Representation & Business Context
+
+  The @sigma_cabs.csv dataset almost certainly represents operational taxi trip 
+  records from a cab service (likely similar to NYC TLC or Uber/Lyft trip data).
+   Each row corresponds to a single completed taxi trip with attributes
+  capturing:
+  - Temporal metadata: Pickup/drop-off timestamps
+  - Spatial metadata: Pickup/drop-off coordinates (longitude/latitude) or zone
+  IDs
+  - Trip characteristics: Passenger count, trip distance/duration, rate type
+  - Financial metrics: Fare components (base fare, tolls, tips, taxes,
+  surcharges)
+  - Operational details: Vendor ID, payment type, store-and-forward flag
+
+  Likely Business Objectives
+
+  Based on standard taxi industry priorities, this dataset would support:
+  - Dynamic pricing optimization: Predict optimal fare multipliers during high
+  demand
+  - Demand forecasting: Anticipate trip volume by time/location for fleet
+  positioning
+  - Route efficiency: Identify profitable corridors or congestion-prone areas
+  - Driver performance: Analyze earnings patterns tied to behavior or external
+  factors
+  - Customer experience: Predict tip likelihood or trip satisfaction proxies
+
+  Probable Prediction Targets
+
+  Target Candidate: fare_amount / total_amount
+  Problem Type: Regression
+  Business Rationale: Revenue prediction, pricing strategy
+  ────────────────────────────────────────
+  Target Candidate: trip_duration
+  Problem Type: Regression
+  Business Rationale: ETA optimization, driver scheduling
+  ────────────────────────────────────────
+  Target Candidate: tip_amount > 0
+  Problem Type: Classification
+  Business Rationale: Incentive modeling, service quality
+  ────────────────────────────────────────
+  Target Candidate: passenger_count
+  Problem Type: Classification/Regression
+  Business Rationale: Vehicle type dispatch optimization
+  ────────────────────────────────────────
+  Target Candidate: Future trip count per zone/hour
+  Problem Type: Forecasting
+  Business Rationale: Supply-demand balancing
+
+  Critical Pre-Project Questions
+
+  Before any analysis, must clarify with stakeholders:
+  1. Primary decision: What specific action will this model enable? (e.g.,
+  "reposition empty cabs 15 mins before predicted demand surge")
+  2. Success metric: Is the business optimizing for revenue, customer wait time,
+   driver utilization, or regulatory compliance?
+  3. Data freshness: How frequently will predictions be made? (Real-time vs.
+  hourly batch affects feature engineering)
+  4. Constraints: Are there legal restrictions on using certain features (e.g.,
+  precise GPS coordinates for privacy)?
+  5. Stakeholder ownership: Who will act on predictions? (Operations team needs
+  different outputs than pricing team)
+
+  Domain Knowledge Requirements
+
+  - Taxi economics: Understanding of fare structures, toll variations,
+  time-based surcharges
+  - Urban mobility patterns: Rush hour effects, event-driven demand (concerts,
+  sports), weather impacts
+  - Data quirks: Knowledge of common taxi dataset issues (e.g.,
+  store_and_fwd_flag indicating offline trips, coordinate outliers from GPS
+  drift)
+  - Validation assumptions: Early verification needed for:
+    - Whether trip_distance aligns with Haversine calculation from coordinates
+    - If timestamps are in local time or UTC (critical for feature extraction)
+    - Whether fare components sum correctly to total amount (data integrity
+  check)
+
+  ---
+  2. DATASET INSPECTION STRATEGY
+
+  Step-by-Step Inspection Protocol
+
+  (Each step includes WHY, WHAT insights, and DECISION dependencies)
+
+  A. Basic Structure & Shape
+
+  - Action: df.shape, df.columns.tolist(), df.info()
+  - WHY: Establishes scope and identifies immediate red flags (e.g., 500k rows
+  but only 5 columns suggests aggregation)
+  - WHAT insights:
+    - Row count indicates statistical power for modeling
+    - Column count reveals feature richness vs. curse of dimensionality risk
+  - DECISIONS:
+    - If <10k rows: Avoid complex models; prioritize bias-variance tradeoff
+    - If >1M rows: Consider sampling for EDA; plan distributed computing
+
+  B. Feature Typology Assessment
+
+  - Action: Separate columns by dtype (numerical vs. object/categorical); check
+  for datetime strings masquerading as objects
+  - WHY: Misclassified dtypes break modeling pipelines (e.g., treating ZIP codes
+   as numerical)
+  - WHAT insights:
+    - Identifies candidate datetime features (pickup_datetime stored as string)
+    - Flags high-cardinality IDs masquerading as categorical (e.g., medallion as
+   object)
+  - DECISIONS:
+    - Datetime columns require feature extraction (hour, day of week) NOT direct
+   modeling
+    - ID-like columns (trip_id, medallion) must be excluded as predictors
+  (leakage risk)
+
+  C. Numerical vs. Categorical Deep Dive
+
+  - Action: For numerical: describe(); for categorical: value_counts().head(20),
+   nunique()
+  - WHY: Reveals scale mismatches and sparsity issues
+  - WHAT insights:
+    - Numerical: Detects impossible values (negative trip distance, 100+
+  passenger count)
+    - Categorical: Exposes rare categories (e.g., 1 vendor with 99.9% market
+  share)
+  - DECISIONS:
+    - High-cardinality categoricals (>50 levels) need encoding strategy
+  (target/hashed vs. one-hot)
+    - Skewed numericals require transformation consideration
+
+  D. Data Quality Scan
+
+  - Action: isnull().sum(), duplicated().sum(), check for whitespace in strings
+  - WHY: Missing/duplicate data biases estimates and inflates variance
+  - WHAT insights:
+    - Systematic missingness (e.g., all dropoff_coords missing for airport
+  trips) indicates collection bias
+    - Exact duplicates suggest ETL pipeline issues; fuzzy duplicates may
+  indicate data entry errors
+  - DECISIONS:
+  ▎ 15% missing in a column: Consider dropping or sophisticated imputation
+    - Duplicates >1%: Investigate source before deduplication
+
+  E. Suspicious Column Investigation
+
+  - Action: Manual inspection of columns with vague names (e.g., misc_fee, flag)
+  - WHY: Undocumented features risk leakage or meaningless noise
+  - WHAT insights:
+    - Columns like store_and_fwd_flag require domain knowledge (indicates
+  offline batch upload)
+    - Derived columns (e.g., calculated_fare) may leak target information
+  - DECISIONS:
+    - Any column whose meaning isn't 100% clear must be validated with data
+  dictionary
+    - Drop features that are direct mathematical transformations of others
+  (multicollinearity risk)
+
+  F. Identifier & Constant Feature Check
+
+  - Action: Identify columns with all unique values (trip_id) or single value
+  (constant)
+  - WHY: Identifiers cause overfitting; constants provide zero information
+  - WHAT insights:
+    - Constant features often result from failed ETL (e.g., all rate_code=1 due
+  to filtering)
+    - Near-constant features (>99% same value) act like constants
+  - DECISIONS:
+    - Drop all identifiers and constants immediately
+    - For near-constants: Domain decision - if meaningful (e.g., rare payment
+  type), keep; else drop
+
+  G. Memory Usage & Storage Check
+
+  - Action: df.memory_usage(deep=True).sum() / 1024**2
+  - WHY: Prevents OOM errors during modeling; guides sampling strategy
+  - WHAT insights:
+    - High memory usage from string columns (e.g., long addresses) vs. efficient
+   numericals
+    - Object dtypes consuming space equivalent to numericals indicate
+  inefficient storage
+  - DECISIONS:
+    - If >1GB: Plan for dtype optimization (float64→float32, category for
+  strings)
+    - If memory-bound: Consider out-of-core processing or feature hashing
+
+  Critical Inspection Dependencies
+
+  - Leakage check must precede EDA: Using future information (e.g., dropoff_time
+   to predict pickup_duration) invalidates all results
+  - Business context guides feature prioritization: If predicting real-time
+  ETAs, drop features unavailable at prediction time (e.g., actual tip amount)
+  - Initial shape determines validation strategy: Time series data requires
+  temporal splits, not random
+
+  ---
+  3. DATA QUALITY ASSESSMENT
+
+  Systematic Quality Issue Detection & Impact Analysis
+
+  A. Missing Values
+
+  - Detection:
+    - Visual: Missingno matrix/bar charts
+    - Quantitative: % missing per column, correlation of missingness between
+  columns
+    - Pattern: df.isnull().sum() + conditional checks (e.g., missing
+  dropoff_coords only when store_and_fwd_flag=1)
+  - Why dangerous:
+    - Complete case analysis throws away data; biased if not MCAR (Missing
+  Completely at Random)
+    - ML algorithms handle missingness poorly (most require complete data)
+  - Performance impact:
+    - Imputation introduces variance; sophisticated methods (MICE) add
+  complexity
+    - Missingness in key features (e.g., trip_distance) may be more informative
+  than imputed values
+
+  B. Incorrect Datatypes
+
+  - Detection:
+    - Attempt conversions (pd.to_numeric, pd.to_datetime) and track failures
+    - Check for strings in numerical columns (e.g., "N/A" in fare columns)
+    - Validate datetime ranges (e.g., pickup year 1900 or 2050)
+  - Why dangerous:
+    - Silent failures: "123" treated as categorical vs numerical changes model
+  behavior
+    - Datetime errors break temporal features (e.g., extracting hour from
+  invalid date)
+  - Performance impact:
+    - Type mismatches cause unexpected errors in vectorized operations
+    - Incorrect datetime parsing destroys seasonality signal
+
+  C. Invalid Entries & Inconsistent Formatting
+
+  - Detection:
+    - Domain-specific range checks (fare ≥0, passenger_count 1-6, coordinates
+  within city bounds)
+    - Categorical: value_counts() for unexpected values (e.g.,
+  payment_type="Credit" vs "credit")
+    - Formatting: Leading/trailing spaces, inconsistent case in strings
+  - Why dangerous:
+    - Invalid entries often indicate systematic errors (e.g., meter malfunction)
+    - Inconsistent categoricals create artificial sparsity (e.g., 20 versions of
+   "Visa")
+  - Performance impact:
+    - Noise increases irreducible error; models learn spurious patterns
+    - Categorical inconsistency inflates feature cardinality unnecessarily
+
+  D. Duplicate Records
+
+  - Detection:
+    - Exact duplicates: df.duplicated().sum()
+    - Near-duplicates: Fuzzy matching on key columns (trip_id + pickup_time
+  within 1 sec)
+    - Business-key duplicates: Same trip logged by multiple systems
+  - Why dangerous:
+    - Over-represents frequent trips; biases empirical distributions
+    - May indicate ETL pipeline replaying same data
+  - Performance impact:
+    - Artificially reduces variance in estimates; overconfident model
+  predictions
+    - Distorts frequency-based encoding (e.g., target encoding)
+
+  E. Noise in Data
+
+  - Detection:
+    - Visual: Scatterplots of correlated variables (fare vs distance) showing
+  random scatter
+    - Statistical: Low signal-to-noise ratio in preliminary correlations
+    - Residual analysis from ultra-simple model (e.g., mean prediction)
+  - Why dangerous:
+    - Masks true relationships; requires more data to detect signals
+    - Often irreducible (e.g., random passenger behavior affecting tips)
+  - Performance impact:
+    - Increases Bayes error rate; sets upper limit on achievable model
+  performance
+    - Wastes model capacity fitting noise instead of signal
+
+  F. Outliers
+
+  - Detection:
+    - Univariate: IQR method (Q1-1.5IQR, Q3+1.5IQR), Z-score (>3|), modified
+  Z-score
+    - Bivariate: Scatterplot residuals, Cook's distance from linear regression
+    - Multivariate: Isolation Forest, Local Outlier Factor (for diagnostic only)
+  - Why dangerous:
+    - May represent errors (GPS drift → 100km trip in 2 mins) OR rare events
+  (airport runs)
+    - Skew parameter estimates in linear models; affect tree splits
+  - Performance impact:
+    - Outliers in targets inflate error metrics disproportionately (MSE
+  sensitive to squares)
+    - Can cause models to overfit to rare anomalies if not handled
+
+  G. Imbalanced Classes & Rare Categories
+
+  - Detection:
+    - Classification: value_counts(normalize=True) for target
+    - Categorical features: Frequency table; identify categories <1% prevalence
+    - Rare combinations: Cross-tabulation of key categoricals (vendor × payment
+  type)
+  - Why dangerous:
+    - Accuracy becomes meaningless; models predict majority class
+    - Rare categories cause high variance in encoding (e.g., one-hot creates
+  sparse columns)
+  - Performance impact:
+    - Biased probability estimates; poor calibration for minority class
+    - Rare categorical levels may be dropped entirely in cross-validation folds
+
+  Quality Assessment Workflow
+
+  1. Automated screening: Run standardized checks (missing, dtype, ranges)
+  2. Domain validation: Flag implausible values for SME review (e.g., "Is a $500
+   fare plausible?")
+  3. Pattern analysis: Check if issues cluster (e.g., all missing dropoff coords
+   at night)
+  4. Impact quantification: Simulate effect of removal/imputation on key
+  distributions
+  5. Decision tree:
+    - If error is random and <5%: Simple imputation/drop
+    - If systematic: Root cause fix preferred; if impossible, model-aware
+  handling
+    - If rare but valid: Preserve; consider specialized modeling
+
+  ---
+  4. EXPLORATORY DATA ANALYSIS (EDA) ROADMAP
+
+  A. Univariate Analysis Strategy
+
+  Distribution Analysis
+
+  - Action:
+    - Numerical: Histograms + KDE plots overlaid; QQ-plots vs normal
+    - Categorical: Sorted bar charts (frequency descending)
+  - WHY:
+    - Reveals normality assumptions violations; guides transformation choice
+    - Shows dominant categories for categorical features
+  - INSIGHTS:
+    - Fare amounts typically right-skewed (many short trips, few long hauls)
+    - Passenger count often peaks at 1-2 with long tail to 6+
+  - DECISIONS:
+    - Severe skew (>|2|) necessitates log/sqrt transformation for linear models
+    - Uniform categorical distribution suggests good feature diversity
+
+  Skewness Analysis
+
+  - Action: Calculate skew/kurtosis; visually assess tail weight
+  - WHY:
+    - Quantifies asymmetry; critical for parametric tests and linear models
+    - High kurtosis indicates outlier sensitivity
+  - INSIGHTS:
+    - Trip distance often shows positive skew (exponential decay of long trips)
+    - Fare/km ratio may be symmetric if pricing is linear
+  - DECISIONS:
+    - Skew >1: Consider Yeo-Johnson transformation (handles zeros/negatives)
+    - High kurtosis: Robust models (Huber loss, quantile regression) may help
+
+  Frequency Distribution
+
+  - Action:
+    - Categorical: Pareto chart (cumulative frequency)
+    - Numerical: Bin sensitivity analysis (try 10, 50, 100 bins)
+  - WHY:
+    - Identifies long-tail categories requiring special handling
+    - Reveals modality (uni/bimodal) suggesting subgroups
+  - INSIGHTS:
+    - Vendor distribution often shows duopoly (2 vendors 90%+ share)
+    - Payment type may have cash/credit bimodality
+  - DECISIONS:
+    - Categories <0.1%: Group as "Other" or drop if meaningless
+    - Bimodal numericals: Consider mixture models or segmentation
+
+  Outlier Detection
+
+  - Action:
+    - Numerical: Boxplots (identify fences), scatterplot matrix for contextual
+  outliers
+    - Categorical: N/A (outliers don't apply; focus on rarity)
+  - WHY:
+    - Distinguishes global outliers (univariate) from contextual (multivariate)
+    - Informs whether to winsorize, transform, or investigate
+  - INSIGHTS:
+    - Fare outliers often correlate with airport trips or tolls
+    - Distance outliers frequently from GPS errors in urban canyons
+  - DECISIONS:
+    - Contextual outliers (e.g., short trip with high fare) may be valid
+  (waiting time)
+    - Pure measurement errors (negative distance) require correction or removal
+
+  Feature Spread Analysis
+
+  - Action:
+    - Numerical: IQR, range, median absolute deviation (MAD)
+    - Categorical: Entropy, Gini impurity
+  - WHY:
+    - Measures feature informativeness; low spread = low predictive power
+    - Complements correlation analysis for nonlinear relationships
+  - INSIGHTS:
+    - Features like store_and_fwd_flag (mostly 0) have low spread
+    - Temporal features (hour of day) show high spread if data spans weeks
+  - DECISIONS:
+    - Drop features with near-zero spread (after verifying not constant)
+    - High-spread features prioritized for interaction terms
+
+  B. Bivariate Analysis Strategy
+
+  Numerical vs Target Analysis
+
+  - Action:
+    - Scatterplots with LOWESS smooth; conditional boxplots (bin numerical)
+    - Correlation: Pearson (linear), Spearman (monotonic), Kendall (rank)
+    - Categorical target: Violin plots or ridge plots
+  - WHY:
+    - Captures linear and nonlinear relationships missed by correlation alone
+    - Reveals heteroscedasticity (changing variance)
+  - INSIGHTS:
+    - Fare vs distance: Usually linear but with increasing variance at long
+  distances
+    - Trip duration vs time of day: Strong diurnal pattern (rush hour peaks)
+  - DECISIONS:
+    - Nonlinear relationships: Consider splines or polynomial features
+    - Heteroscedasticity: May require weighted regression or
+  variance-stabilizing transform
+
+  Categorical vs Target Analysis
+
+  - Action:
+    - Numerical target: Grouped boxplots/violin plots; ANOVA F-test
+    - Categorical target: Stacked bar charts; chi-square test of independence
+    - Calculate conditional means/modes and effect sizes (eta-squared, Cramer's
+  V)
+  - WHY:
+    - Quantifies predictive power of categoricals beyond simple frequency
+    - Reveals masking effects (e.g., vendor effect disappears when controlling
+  for location)
+  - INSIGHTS:
+    - Airport trips (rate_code=2) show significantly higher fares
+    - Payment type influences tip percentage (credit cards yield higher tips)
+  - DECISIONS:
+    - Low effect size (<0.01): Consider dropping unless theoretically important
+    - Significant interactions: Preserve for modeling (e.g., vendor × time of
+  day)
+
+  Correlation Analysis & Relationship Discovery
+
+  - Action:
+    - Numerical: Correlation matrix heatmap (mask upper triangle); clustermap
+    - Mixed: Correlation ratio (eta) for categorical→numerical
+    - Spatial: Pickup-dropoff distance vs straight-line distance (detours)
+  - WHY:
+    - Identifies redundant features; detects suppressor variables
+    - Reveals multicollinearity sources before VIF calculation
+  - INSIGHTS:
+    - Pickup/drop-off longitude highly correlated (both reflect borough)
+    - Fare components often correlate strongly with total fare (by construction)
+  - DECISIONS:
+    - |Pearson| >0.8: Investigate for redundancy or multicollinearity
+    - Low correlation but high mutual information: Suggests nonlinear
+  relationship
+
+  Trend Analysis (if temporal)
+
+  - Action:
+    - Time series plots: Daily/weekly aggregates of key metrics
+    - Seasonal decomposition (STL) of trip volume/fare averages
+    - Holiday/event impact analysis
+  - WHY:
+    - Separates trend, seasonality, and residual components
+    - Identifies exogenous drivers (weather, events) for feature engineering
+  - INSIGHTS:
+    - Trip volume shows weekly pattern (low weekends, high weekdays)
+    - Fare per mile increases during rush hour due to congestion pricing
+  - DECISIONS:
+    - Strong seasonality: Requires seasonal features or SARIMA baseline
+    - Clear holiday effects: Binary holiday flags essential
+
+  C. Multivariate Analysis Strategy
+
+  Feature Interaction Analysis
+
+  - Action:
+    - Partial dependence plots (from simple RF) for 2-way interactions
+    - ANOVA-style interaction plots (means by factor combinations)
+    - Variance decomposition (Shapley values from interpretable model)
+  - WHY:
+    - Reveals non-additive effects (e.g., fare impact of distance depends on
+  time)
+    - Prevents missing critical synergies in feature engineering
+  - INSIGHTS:
+    - Long distance trips earn more per mile at night (less congestion)
+    - Short trips in Manhattan have higher fare/mile than outer boroughs
+  - DECISIONS:
+    - Strong interactions: Create explicit features (distance × time_of_day_bin)
+    - Weak interactions: Rely on model to capture (tree-based methods)
+
+  Dependency Analysis
+
+  - Action:
+    - Conditional entropy: H(target | feature1, feature2) vs H(target |
+  feature1)
+    - Mutual information score for feature sets
+    - Decision tree feature importance (gain/cover)
+  - WHY:
+    - Quantifies unique vs redundant information contribution
+    - Identifies features that only matter in combination
+  - INSIGHTS:
+    - Pickup zone adds little if dropoff zone known (and vice versa) for fare
+  prediction
+    - Weather features only improve prediction during extreme events
+  - DECISIONS:
+    - Low conditional mutual information: Feature likely redundant
+    - High synergy: Preserve both features; consider interaction term
+
+  Cluster Patterns & Hidden Relationships
+
+  - Action:
+    - Dimensionality reduction for visualization: t-SNE/UMAP on sampled data
+    - Clustering: K-means, DBSCAN on feature space (standardized)
+    - Profile clusters: Compare distributions of target and features
+  - WHY:
+    - Discovers natural segments in data (e.g., trip types)
+    - Reveals confounding variables masked in aggregate analysis
+  - INSIGHTS:
+    - Cluster 1: Short downtown trips (high frequency, low fare)
+    - Cluster 2: Airport runs (low frequency, high fare, specific temporal
+  pattern)
+    - Cluster 3: Outer borough commutes (medium distance, consistent timing)
+  - DECISIONS:
+    - Distinct clusters: Consider stratified modeling or cluster-as-feature
+    - Overlapping clusters: Global model with interaction terms sufficient
+
+  Segment-Based Insights
+
+  - Action:
+    - Define business-relevant segments (e.g., "airport trips", "weekend
+  nights")
+    - Compare segment statistics to global distributions
+    - Test for segment-specific model performance
+  - WHY:
+    - Ensures model works for economically important subgroups
+    - Prevents averaging out critical behaviors (e.g., model ignores airport
+  premiums)
+  - INSIGHTS:
+    - Weekend night trips have 30% higher fare/mile but lower trip volume
+    - Electric vehicle trips (if tagged) show different tipping behavior
+  - DECISIONS:
+    - Poor segment performance: Segment-specific models or weighting
+    - Heterogeneous effects: Interaction terms essential
+
+  D. Business Insight Discovery Framework
+
+  Pattern Recognition Priorities
+
+  - Revenue drivers:
+    - Which factors most increase fare per mile? (time, location, passenger
+  count)
+    - Are there "sweet spots" for driver earnings (trip length vs time)?
+  - Operational efficiency:
+    - What pickup locations yield shortest passenger wait times?
+    - How does driver utilization vary by zone/time?
+  - Customer behavior:
+    - When are passengers most generous with tips?
+    - Does trip experience (speed, smoothness) correlate with tipping?
+  - Anomaly detection:
+    - What characterizes trips with excessive tolls or long wait times?
+    - Are certain vendor/payment combinations associated with disputes?
+
+  Insight-to-Action Translation
+
+  - Pricing:
+    - If fare/mile varies predictably by time/zone → implement dynamic pricing
+  zones
+  - Repositioning:
+    - If pickup demand forecasts show clear hotspots → proactive driver
+  relocation
+  - Driver incentives:
+    - If certain trip types yield higher tips → recognize/reward those behaviors
+  - Service design:
+    - If airport trips have consistent pain points → dedicated queue management
+  - Regulatory compliance:
+    - If certain fare components frequently disputed → simplify or clarify
+
+  EDA Influence on Product Decisions
+
+  - Feature prioritization:
+    - EDA showing pickup_hour explains 40% of fare variance → invest in
+  real-time time features
+  - Model complexity:
+    - Strong linear trends → start with GLM before trying neural nets
+  - Data collection:
+    - Missing weather data correlates with forecast errors → add weather API
+  - Risk mitigation:
+    - EDA reveals 2% of trips have impossible speeds → add GPS validation layer
+
+  ---
+  5. VISUALIZATION STRATEGY
+
+  Plot Selection Rationale by Data Type & Goal
+
+  For Numerical Features
+
+  - Histograms:
+    - Why: First-line distribution check; shows modality, skew, range
+    - Best for: Initial screening of all numericals; comparing pre/post
+  transformation
+    - Avoid when: Multimodal distributions (use mixture plots instead)
+  - KDE Plots:
+    - Why: Smooth density estimate; better for multimodal than histograms
+    - Best for: Comparing distributions across groups (e.g., fare by payment
+  type)
+    - Avoid when: Small sample sizes (<100) → oversmoothing risk
+  - Boxplots:
+    - Why: Robust outlier detection; compares spread and central tendency
+    - Best for: Categorical vs numerical (e.g., fare distribution per borough)
+    - Avoid when: Sample size very large → overplotting (use violin instead)
+  - Violin Plots:
+    - Why: Combines boxplot + KDE; shows full distribution shape
+    - Best for: When modality matters (e.g., bimodal trip durations)
+    - Avoid when: Too many categories (>10) → cluttered
+  - Scatterplots:
+    - Why: Reveals relationships, outliers, heteroscedasticity
+    - Best for: Numerical vs numerical (fare vs distance); add hue for
+  categorical
+    - Enhance with: LOWESS smooth, marginal histograms, transparency for
+  overplotting
+  - Pairplots:
+    - Why: Rapid multivariate relationship scan
+    - Best for: <5 features; early EDA to spot strong correlations
+    - Avoid when: >6 features → overwhelming and slow
+
+  For Categorical Features
+
+  - Countplots:
+    - Why: Shows frequency and order; baseline for categorical understanding
+    - Best for: All categoricals; sorting by frequency reveals long tails
+    - Enhance with: Percentage annotations; horizontal for long category lists
+  - Bar Charts:
+    - Why: Flexible for aggregated stats (mean fare per category)
+    - Best for: Categorical vs numerical (average tip by payment type)
+    - Avoid when: Too many categories → sort or group low-frequency
+  - Heatmaps:
+    - Why: Shows co-occurrence patterns (e.g., pickup-dropoff zone matrix)
+    - Best for: Two categoricals with moderate cardinality (<20 each)
+    - Avoid when: Extreme sparsity → most cells zero (use sparse matrix plot)
+
+  For Relationships & Diagnostics
+
+  - Correlation Heatmaps:
+    - Why: Rapid multicollinearity scan; identifies feature groups
+    - Best for: All numerical features; mask upper triangle for clarity
+    - Enhance with: Significance stars (p<0.05) and value annotations
+  - Residual Plots:
+    - Why: Critical for regression model validation (patterns =
+  misspecification)
+    - Best for: Predicted vs residuals; scale-location plot for
+  heteroscedasticity
+    - Always use: After fitting any model, even baseline
+  - QQ-Plots:
+    - Why: Assesses normality of errors/residuals
+    - Best for: Regression diagnostics; departures at tails indicate outliers
+  - Learning Curves:
+    - Why: Diagnoses bias/variance tradeoff; shows if more data helps
+    - Best for: Mid-to-late stage modeling; training size vs validation score
+
+  Specialized Visualizations
+
+  - Geospatial:
+    - Pickup/dropoff maps: Hexbin plots (avoid overplotting points); choropleths
+   by zone
+    - Flow maps: Arrow thickness = trip volume between zones (reveals corridors)
+    - Why: Essential for spatial data; reveals geographic biases invisible in
+  tables
+  - Time-Series:
+    - Decomposition plots: Observed = trend + seasonal + residual (STL)
+    - Autocorrelation plots: Identifies lagged relationships
+    - Why: Non-negotiable for temporal data; prevents flawed CV splits
+  - Calibration Curves:
+    - Why: Checks if predicted probabilities match observed frequency
+  (classification)
+    - Best for: Probabilistic classifiers; essential for business decisions
+
+  Visualization Hierarchy by Insight Value
+
+  1. Highest value:
+    - Scatterplots with conditional coloring (e.g., fare ~ distance, colored by
+  time_of_day)
+    - Small multiples (e.g., fare distribution per hour of day)
+    - Geospatial hexbin with value aggregation
+  2. High value:
+    - Violin plots for key categorical targets
+    - Correlation heatmap with hierarchical clustering
+    - Partial dependence plots from interpretable model
+  3. Medium value:
+    - Univariate distributions (histograms/KDE)
+    - Basic countplots/bar charts
+    - Time series aggregates
+  4. Lower value (use sparingly):
+    - Pairplots (>4 features)
+    - Raw scatterplots without context
+    - 3D plots (rarely add value over 2D + interaction)
+
+  Critical Visualization Principles
+
+  - Always annotate:
+    - Sample size (n=) in subtitle
+    - Key statistics (median, IQR) in caption
+    - Data source and timestamp
+  - Consistent encoding:
+    - Same color scheme for same variable across plots (e.g., blue = vendor A)
+    - Sequential palettes for ordered data; diverging for centered data
+  - Avoid deception:
+    - Never start numerical axes at non-zero unless justified (misleading)
+    - Use perceptual uniformity in color scales (viridis, plasma)
+  - Interactivity for exploration:
+    - Static plots for reports; interactive (Plotly/Bokeh) for deep dives
+    - Tooltips showing exact values and related fields
+
+  ---
+  6. FEATURE ENGINEERING STRATEGY
+
+  Core Philosophy
+
+  Engineer features that represent actionable business concepts, not just
+  mathematical transformations. Every feature should be explainable to a domain
+  expert in one sentence.
+
+  Categorical Encoding Strategy
+
+  Ordinal Encoding
+
+  - When to use:
+    - Inherent order with consistent intervals (e.g., education level: HS < BS <
+   MS < PhD)
+    - Time-based categories with equal spacing (hour of day 0-23)
+  - Why:
+    - Preserves order; minimal dimensionality increase
+    - Works well with linear and tree-based models
+  - Risk:
+    - False assumption of equal intervals (e.g., hour 23→0 is not 1 hour)
+    - Mitigation: Use only for provably ordinal; validate with domain expert
+
+  One-Hot Encoding (OHE)
+
+  - When to use:
+    - Low cardinality (<10 levels); no natural order
+    - Linear models requiring explicit category representation
+  - Why:
+    - No false ordinal assumption; interpretable coefficients
+    - Standard expectation in many ML libraries
+  - Risk:
+    - Dimensionality explosion with high cardinality
+    - Sparsity issues; multicollinearity if drop-first not used
+  - Mitigation:
+    - Drop first level to avoid dummy variable trap
+    - Group rare categories before OHE (see below)
+
+  Target/Mean Encoding
+
+  - When to use:
+    - High cardinality categoricals (>50 levels)
+    - When target has monotonic relationship with category
+    - Tree-based models less affected by cardinality
+  - Why:
+    - Captures target relationship efficiently; single numerical feature
+    - Reduces sparsity vs OHE
+  - Risk:
+    - Target leakage (using future/test data to compute means)
+    - Overfitting to rare categories (high variance)
+  - Mitigation:
+    - Critical: Compute encoding statistics only on training fold
+    - Use smoothing: encoded = (category_count * category_mean + global_mean * 
+  smooth) / (category_count + smooth)
+    - Validate with cross-tabulation: check for monotonic relationship
+
+  Frequency/Count Encoding
+
+  - When to use:
+    - When category frequency predicts target (e.g., popular pickup zones)
+    - As proxy for target encoding when leakage concerns exist
+  - Why:
+    - No target leakage; captures popularity signal
+    - Stable for rare categories (frequency never zero)
+  - Risk:
+    - Weak predictive power if frequency not related to target
+    - Loses category-specific information
+  - Mitigation:
+    - Validate with ANOVA: does frequency explain target variance?
+    - Combine with target encoding for best of both worlds
+
+  Embedding Techniques
+
+  - When to use:
+    - Very high cardinality (>100 levels) with sufficient data
+    - When relationships are complex and nonlinear
+    - Deep learning or factorization machine contexts
+  - Why:
+    - Learns dense, low-dimensional representation
+    - Captures similarity (e.g., geographically close zones have similar
+  embeddings)
+  - Risk:
+    - Black box; harder to interpret
+    - Requires more data to train effectively
+  - Mitigation:
+    - Start with simple encoding; only use embeddings if baseline underfits
+    - Visualize embeddings to verify spatial/temporal coherence
+
+  Handling Rare Categories
+
+  - Detection:
+    - Categories with <0.1% frequency OR <20 samples (adjust for dataset size)
+    - Cross-validate: Does category appear in all CV folds?
+  - Strategies:
+    - Group as "Other": Simple; preserves signal if rare categories behave
+  similarly
+    - Drop entirely: Only if meaningless noise (e.g., typos); verify with domain
+   expert
+    - Target encoding with strong smoothing: Borrow strength from global mean
+    - Hierarchical grouping: E.g., rare vendor → "other vendor"; rare zone →
+  borough level
+    - Predict rare category first: Model P(category) then use as feature (avoids
+   leakage)
+  - When NOT to engineer:
+    - If rare category represents valid but uncommon business case (e.g., luxury
+   taxi service)
+    - If removing it creates systematic bias (e.g., dropping all airport trips)
+    - If sample size is huge (>1M) → rare categories still have sufficient
+  samples
+
+  Feature Scaling Strategy
+
+  Normalization (Min-Max)
+
+  - When to use:
+    - Algorithms sensitive to feature scale (SVM, k-NN, neural nets)
+    - When bounded interpretation needed ([0,1] range)
+    - Features have hard min/max (e.g., probabilities)
+  - Why:
+    - Preserves distribution shape; sensitive to outliers
+    - Output range predictable
+  - Risk:
+    - Outliers compress majority of data into small range
+    - Not robust to new outliers outside training min/max
+
+  Standardization (Z-Score)
+
+  - When to use:
+    - Algorithms assuming normality (linear regression, LDA, logistic
+  regression)
+    - PCA, clustering (k-means, Gaussian mixture)
+    - When outliers present but not extreme
+  - Why:
+    - Robust to linear transformations; preserves distribution shape
+    - Outliers affect scale less than normalization
+  - Risk:
+    - Assumes roughly symmetric distribution; poor for skewed data
+    - Mean/std sensitive to outliers (use robust scaler if severe)
+
+  Robust Scaling
+
+  - When to use:
+    - Presence of outliers; non-normal distributions
+    - Algorithms using median/IQR (random forests less sensitive but still
+  benefit)
+  - Why:
+    - Uses IQR and median; ignores outliers beyond fences
+    - Better for skewed data (e.g., fare amounts)
+  - Risk:
+    - Less common; may confuse stakeholders unfamiliar with IQR scaling
+    - Output range not bounded (can be negative)
+
+  Specialized Transformations
+
+  - Log Transform:
+    - When: Right-skewed positives (fare, distance); multiplicative effects
+    - Why: Stabilizes variance; makes relationships more linear
+    - Caveat: Requires positive values; use log(x+1) for zeros
+  - Box-Cox / Yeo-Johnson:
+    - When: Need to normalize distribution; parametric test prep
+    - Why: Finds optimal power transform; Yeo-Johnson handles negatives/zeros
+    - Caveat: Transformed units hard to interpret; must invert for reporting
+  - Quantile Transform:
+    - When: Severe non-normality; want uniform or normal distribution
+    - Why: Non-parametric; preserves rank order
+    - Risk: Distorts relationships; use only as last resort
+
+  Interaction Features
+
+  - Creation Principles:
+    - Domain-driven: Only create interactions with clear business meaning (e.g.,
+   distance × congestion_factor)
+    - Statistical guidance:
+        - High mutual information between features suggests interaction
+  potential
+      - Low partial dependence plot additivity
+      - Significant interaction term in linear model
+    - Limit order:
+        - Start with 2-way interactions; 3-way+ rare and hard to interpret
+      - Prioritize interactions involving target-correlated features
+  - Encoding:
+    - Numerical × Numerical: Simple product (consider log-transformed inputs)
+    - Numerical × Categorical:
+        - Create separate slopes per category (equivalent to interaction)
+      - Or: Numerical feature × category indicator (one-hot)
+    - Categorical × Categorical:
+        - Only if both low cardinality; otherwise use target encoding of
+  combination
+      - Or: Create interaction term via cross-validation to avoid leakage
+  - When NOT to create:
+    - If features are already combined in target (e.g., fare = base + rate × 
+  distance)
+    - If interaction lacks business logic (e.g., vendor_id × payment_type
+  without mechanistic reason)
+    - If causes severe multicollinearity (check VIF after creation)
+
+  Aggregated Features
+
+  - Temporal Aggregations:
+    - Rolling statistics:
+        - Mean fare in last 1hr at pickup zone (captures immediate demand)
+      - Standard deviation of trip duration in last 24h (reliability measure)
+    - Expanding window:
+        - Cumulative average tip rate by driver (experience proxy)
+      - Cumulative trips served by vendor today (market share)
+  - Spatial Aggregations:
+    - Zone-based:
+        - Average pickup/dropoff frequency per zone (popularity)
+      - Typical fare matrix between zones (profitability surface)
+    - Distance-based:
+        - Number of trips within 1km radius in last 30m (local density)
+      - Average speed in pickup zone (congestion proxy)
+  - Creation Protocol:
+    - Critical: Ensure no lookahead bias
+        - For time t, only use data from < t
+      - Use expanding window for cumulative stats; sliding window for recent
+    - Validation:
+        - Check aggregation stability (does 1hr mean change drastically with
+  window?)
+      - Compare to business KPIs (e.g., does zone popularity match dispatch
+  logs?)
+  - Pitfalls to Avoid:
+    - Using future data (e.g., "average fare of trips ending after pickup")
+    - Overly specific windows (e.g., exact 47-minute window) without
+  justification
+    - Ignoring edge effects (first/last hours of day have incomplete windows)
+
+  Date/Time Feature Extraction
+
+  - Essential Components:
+    - Cyclical encoding:
+        - Hour of day: sin(2π*hour/24), cos(2π*hour/24) (preserves 23→0
+  continuity)
+      - Day of week: Similar with period=7
+      - Day of month: Period=30.44 (average month length)
+      - Month of year: Period=12
+    - Business-relevant binning:
+        - Rush hour: 7-9 AM, 4-7 PM (binary or intensity)
+      - Weekend: Friday 6PM - Monday 6AM (accounts for cultural variation)
+      - Holiday: Federal/local holiday flags + eve/day after
+      - Shift: Day (7AM-3PM), Evening (3PM-11PM), Night (11PM-7AM)
+    - Timestamp math:
+        - Time since last trip (driver idle time)
+      - Time until next scheduled event (if known)
+      - Duration of current shift (if logs available)
+  - Why Cyclical > Integer:
+    - Prevents model from thinking hour 23 is "far" from hour 0
+    - Captures periodic nature essential for temporal patterns
+  - When to Avoid:
+    - If data spans <1 week → day of week meaningless
+    - If prediction horizon >> temporal pattern (e.g., forecasting yearly
+  annuals from hourly data)
+    - If timestamp is corrupted or missing systematically
+
+  Binning & Discretization
+
+  - When to use:
+    - Strong nonlinear relationship with target (e.g., fare/mile peaks at medium
+   distances)
+    - Creating interpretable risk categories (e.g., "high congestion" zone)
+    - Preparing for monotonic constraints in modeling
+  - Methods:
+    - Equal-width: Simple; sensitive to outliers
+    - Equal-frequency (quantile): Robust to outliers; ensures bin population
+    - Business-defined: Clinically meaningful thresholds (e.g., speed <10mph =
+  congested)
+    - Model-based: Optimal bins from decision tree splits (use caution → leakage
+   risk)
+  - Why prefer equal-frequency:
+    - Handles skewed distributions naturally
+    - Prevents empty bins in sparse regions
+  - Risk:
+    - Loses within-bin information; assumes homogeneity
+    - Number of bins hyperparameter requiring validation
+  - Mitigation:
+    - Validate with ANOVA: does binning significantly explain target?
+    - Start with 3-5 bins; increase only if residual plots show pattern
+    - Consider smooth alternatives (splines) if binning feels arbitrary
+
+  Domain-Driven Features (Taxi-Specific Examples)
+
+  - Geospatial:
+    - Haversine distance (more accurate than Euclidean for lat/lon)
+    - Manhattan distance (better proxy for grid-based city travel)
+    - Route directness: Haversine / actual route length (from map matching)
+    - Pickup/dropoff in specific zones: Airport, business district,
+  entertainment area
+  - Temporal:
+    - Time of day in seconds since midnight (for cyclical encoding)
+    - Minutes to/from nearest rush hour boundary
+    - Is pickup during scheduled public transit strike? (if data available)
+  - Financial:
+    - Fare per mile (efficiency metric; detects meter tampering)
+    - Tip percentage (service quality proxy)
+    - Proportion of fare from tolls/surcharges (route characteristic)
+  - Operational:
+    - Vehicle utilization: Trip time / (trip time + idle time)
+    - Detour index: Actual distance / straight-line distance
+    - Load factor: Passenger count / vehicle capacity
+  - Validation:
+    - Each feature must pass "so what?" test:
+        - "If this feature doubles, what business action would we take?"
+      - If no clear answer, question its utility
+
+  Feature Engineering Guardrails
+
+  - Never engineer using target:
+    - Absolute prohibition on features incorporating
+  future/prediction-time-unknown data
+    - Example: Don't use actual_tip_amount to predict will_tip (use only
+  pre-trip known data)
+  - Validate stability:
+    - Check feature distribution similarity between train/test (KS test, PSI)
+    - Ensure feature meaning doesn't shift over time (e.g., "rush hour" changes
+  with seasons)
+  - Document assumptions:
+    - Every engineered feature needs:
+        - Business rationale
+      - Calculation method
+      - Known limitations
+      - Sensitivity to input errors
+  - Start minimal:
+    - Begin with 5-7 core features; add complexity only if baseline underfits
+    - Most gains come from cleaning and basic transforms, not exotic features
+
+  ---
+  7. FEATURE SELECTION STRATEGY
+
+  Goal
+
+  Identify the smallest feature subset that preserves predictive power while
+  reducing overfitting risk, computational cost, and improving interpretability.
+
+  Correlation-Based Selection
+
+  - Method:
+    - Remove one feature from pairs with |correlation| > threshold (0.7-0.9)
+    - Prefer dropping the feature with:
+        - Lower univariate correlation with target
+      - Higher missingness
+      - Less business interpretability
+  - Why:
+    - Rapidly reduces multicollinearity; improves numerical stability
+    - Cuts redundant information that adds noise
+  - Limitations:
+    - Only catches linear relationships; misses nonlinear dependencies
+    - Arbitrary threshold; may remove complementary features
+  - Best practice:
+    - Use as first pass before more sophisticated methods
+    - Always verify with VIF after selection (target VIF <5-10)
+
+  Variance Threshold Methods
+
+  - Method:
+    - Remove features with variance below threshold (e.g., <0.01 after
+  standardization)
+    - For binary features: Remove if prevalence <1% or >99%
+  - Why:
+    - Features near-constant provide negligible information
+    - Reduces noise from near-duplicate or constant columns
+  - Limitations:
+    - Ignores relationship with target; may remove predictive low-variance
+  features
+    - Variance threshold scale-dependent (must standardize first)
+  - Best practice:
+    - Combine with univariate target correlation:
+        - Keep if |corr(target, feature)| > 0.05 AND variance > threshold
+    - Validate with permutation importance: does removal hurt performance?
+
+  Statistical Testing
+
+  - Numerical target:
+    - ANOVA F-test:
+        - Compares group means across categorical feature levels
+      - Select categories where p-value <0.05 (with multiple testing correction)
+    - Mutual information (MIC):
+        - Measures general dependence; captures nonlinear
+      - Use sklearn.feature_selection.mutual_info_regression
+  - Categorical target:
+    - Chi-square test:
+        - Tests independence between feature and target
+      - Requires adequate expected frequencies (>5 per cell)
+    - Tschuprow's T / Cramer's V:
+        - Effect size for chi-square; values >0.1 often meaningful
+  - Why:
+    - Provides statistical significance; controls for false discoveries
+    - Mutual information captures complex relationships
+  - Limitations:
+    - Assumptions (normality, independence) often violated
+    - Multiple testing burden; p-values sensitive to sample size
+  - Best practice:
+    - Focus on effect size over p-value (especially with large n)
+    - Use Benjamini-Hochberg correction for FDR control
+    - For MIC: k-nearest neighbors parameter requires tuning
+
+  Feature Importance Methods
+
+  - Tree-based importance:
+    - Mean decrease impurity (MDI):
+        - Fast but biased toward high-cardinality features
+      - Use with caution; prefer permutation importance
+    - Permutation importance:
+        - Gold standard; measures performance drop when feature shuffled
+      - Computationally expensive but reliable
+      - Critical: Must compute on validation set, not training
+  - Linear model coefficients:
+    - Standardized coefficients:
+        - Comparable scale; assumes linear relationship
+      - Only valid if features are standardized and no multicollinearity
+    - Lasso path:
+        - Features with nonzero coefficients at optimal lambda
+      - Naturally performs selection via L1 regularization
+  - Why:
+    - Captures model-specific utility; accounts for interactions
+    - Permutation importance is model-agnostic and intuitive
+  - Limitations:
+    - MDI biased; permutation importance slow for large datasets
+    - Linear coefficients meaningless if assumptions violated
+  - Best practice:
+    - Use permutation importance from simple baseline (e.g., logistic
+  regression)
+    - Validate stability: run multiple times with different seeds
+    - Never use training-set importance for selection (guarantees overfitting)
+
+  Recursive Feature Elimination (RFE)
+
+  - Method:
+        i. Train model on all features
+        ii. Remove least important feature (per method above)
+        iii. Repeat until k features remain or performance drops
+    - Use cross-validation to select optimal k
+  - Why:
+    - Accounts for feature interactions in selection process
+    - Wrapper method often finds better subsets than filter methods
+  - Limitations:
+    - Computationally expensive (O(n_features) model fits)
+    - Risk of overfitting to selection criterion
+    - Instability: small data changes → different selected features
+  - Best practice:
+    - Use with simple, stable models (e.g., linear SVM, not deep nets)
+    - Always nest within cross-validation:
+        - Outer loop: evaluate selected feature set
+      - Inner loop: perform RFE to choose features
+    - Start with large k (e.g., 50 features) and stop when performance plateaus
+
+  Multicollinearity Detection
+
+  - Variance Inflation Factor (VIF):
+    - Calculation: VIF_j = 1 / (1 - R²_j) where R²_j is from regressing feature
+  j on all others
+    - Interpretation:
+        - VIF=1: No multicollinearity
+      - VIF>5: Moderate concern
+      - VIF>10: Severe multicollinearity (consider removal)
+  - Condition Number:
+    - Ratio of largest to smallest eigenvalue of X'X
+  ▎ 30 suggests multicollinearity issues
+  - Why:
+    - Multicollinearity inflates variance of coefficient estimates
+    - Makes coefficients unstable and hard to interpret
+    - Doesn't affect prediction accuracy but harms inferential goals
+  - When to act:
+    - If goal is inference (understanding drivers): Aggressive removal (VIF>5)
+    - If goal is prediction only: Tolerate higher VIF (<20) if performance
+  stable
+  - Best practice:
+    - Check VIF after encoding and scaling
+    - Remove highest VIF feature iteratively until all < threshold
+    - Verify removal doesn't hurt validation performance
+
+  PCA and Dimensionality Reduction
+
+  - When to use:
+    - Features are highly correlated; latent constructs suspected
+    - Need for visualization or noise reduction
+    - Computational constraints with many features
+  - Why:
+    - Creates orthogonal components capturing max variance
+    - Can denoise by keeping only top PCs (if signal in first few)
+  - Limitations:
+    - Components are linear combinations; hard to interpret
+    - Assumes linear relationships; misses nonlinear structure
+    - Signal may reside in later PCs (e.g., contrast effects)
+  - Best practice:
+    - Always standardize before PCA
+    - Examine scree plot: look for elbow (diminishing returns)
+    - Validate: Does reconstruction error vs. components show clear cutoff?
+    - For interpretation: Examine loadings; group features with high |loading|
+  on same PC
+    - Never use PCA components directly in final model without verifying they
+  improve performance over raw features
+
+  Avoiding Overfitting During Selection
+
+  - The Golden Rule: Feature selection must occur INSIDE the cross-validation 
+  loop
+    - ❌ Wrong: Select features on full data → then CV on selected features
+    - ✅ Right: For each CV fold:
+        i. Select features using ONLY training fold data
+      ii. Train model on selected features
+      iii. Evaluate on hold-out fold
+    - Otherwise: Selection bias inflates performance estimates
+  - Stability validation:
+    - Run selection multiple times with different seeds/subsets
+    - Report feature selection frequency (e.g., "hour_of_day selected in 95% of
+  runs")
+    - Unstable selection → rely on regularization or domain knowledge instead
+  - Performance plateau check:
+    - Plot CV score vs. number of features selected
+    - Stop when adding features yields <0.5% improvement
+    - Simpler model preferred at parity (Occam's razor)
+  - Domain knowledge anchoring:
+    - Force inclusion of known important features (e.g., trip distance for fare
+  prediction)
+    - Never select a set that contradicts strong causal knowledge
+  - Holdout set purity:
+    - Never touch test set until final model evaluation
+    - Use validation set for all selection/tuning decisions
+
+  Selection Workflow Summary
+
+  1. Filter phase:
+    - Remove constants, near-constants, obvious duplicates
+    - Apply variance threshold + univariate correlation screen
+  2. Wrapper phase:
+    - Apply RFE with simple linear model (logistic/lasso)
+    - Validate stability via bootstrap
+  3. Embedded phase:
+    - Use final model with inherent selection (lasso, tree-based)
+    - Compare to filter/wrapper results
+  4. Domain validation:
+    - SME review: Does selected set make business sense?
+    - Add back any theoretically critical features missed
+  5. Final verification:
+    - Train full model on selected features
+    - Confirm performance matches CV estimate
+
+  ---
+  8. MACHINE LEARNING STRATEGY
+
+  Train-Validation-Test Split Strategy
+
+  Temporal Considerations (Critical for Taxi Data)
+
+  - If data has temporal ordering (almost always true for trip data):
+    - Never use random shuffle → causes leakage from future to past
+    - Preferred: Time-based split
+        - Train: Oldest 70% (e.g., Jan-Jul)
+      - Validation: Next 15% (Aug)
+      - Test: Most recent 15% (Sep-Oct)
+    - Why:
+        - Mimics real-world deployment (train on past, predict future)
+      - Captures concept drift; validates model generalizes forward in time
+    - Validation:
+        - Check for seasonality: Ensure each split contains full weekly cycles
+      - If data <3 months: Consider stratified temporal sampling by week/day
+  - If purely cross-sectional (rare for trip data):
+    - Stratified split by key categorical (e.g., vendor, zone) to preserve
+  distribution
+    - Minimum 70/15/15 split; adjust based on size
+  - Holdout set size:
+    - Test set: Large enough for stable metric estimation (min 1000 samples)
+    - Validation set: Sufficient for tuning (min 500 samples)
+    - Training set: Remainder (should be >> validation/test)
+
+  Cross-Validation Strategy
+
+  For Temporal Data
+
+  - Time Series Cross-Validation (TSCV):
+    - Expanding window:
+        - Fold 1: Train [0:t1], Val [t1:t2]
+      - Fold 2: Train [0:t2], Val [t2:t3]
+      - Fold 3: Train [0:t3], Val [t3:t4]
+    - Or sliding window (fixed training window size)
+    - Why:
+        - Respects temporal ordering; no future leakage
+      - Estimates how model performance degrades over time
+  - When to use:
+    - Primary validation strategy for forecasting/dynamic prediction
+    - Essential if detecting concept drift (e.g., changing driver behavior)
+  For Non-Temporal or Augmented Temporal
+
+  - Stratified K-Fold:
+    - Stratify by target distribution (for classification) or key bins (for
+  regression)
+    - Ensures each fold represents overall distribution
+    - Why:
+        - Controls for class/label imbalance in small datasets
+      - Reduces variance of performance estimate
+  - Group K-Fold:
+    - Group by entity (e.g., driver ID, vehicle ID)
+    - Ensures all trips from same entity in same fold
+    - Why:
+        - Prevents overoptimistic estimates from correlated samples
+      - Critical if features include driver/vehicle history
+  - Avoid:
+    - Standard K-Fold on temporal data → severe leakage
+    - Leave-one-out → computationally prohibitive; high variance
+
+  Baseline Model Creation
+
+  Regression Baselines (e.g., fare_amount prediction)
+
+  1. Naive Baseline:
+    - Predict median/mode of training target
+    - Why: Establishes floor; any model must beat this
+  2. Linear Baseline:
+    - Ordinary Least Squares (OLS) with:
+        - Core features: trip_distance, pickup_hour_bin, passenger_count
+      - Essential interactions: distance × time_of_day (congestion effect)
+    - Why:
+        - Interpretable; highlights variable importance
+      - Fast to train; good for feature sanity checks
+  3. Tree-Based Baseline:
+    - Decision Tree Regressor (depth=3-5)
+    - Why:
+        - Captures nonlinearities and interactions automatically
+      - Reveals important splits for feature engineering
+  Classification Baselines (e.g., will_tip>0)
+
+  1. Naive Baseline:
+    - Predict training set majority class
+  2. Logistic Regression Baseline:
+    - With L2 regularization (to handle multicollinearity)
+    - Features: Same as regression baseline + categorical encodings
+  3. Decision Tree Classifier:
+    - Same rationale as regression baseline
+
+  Why These Baselines?
+
+  - Interpretability first: Understand what drives predictions before complex
+  models
+  - Speed: Enables rapid iteration on features/engineering
+  - Benchmarks:
+    - If complex model doesn't beat linear baseline → feature issue
+    - If tree baseline beats linear → strong nonlinearities/interactions
+    - If neither beats naive → data quality or problem mismatch
+
+  Candidate Algorithms to Try
+
+  For Regression Tasks
+
+  Algorithm: Linear Models (Ridge, Lasso, ElasticNet)
+  When to Use: Interpretable needs; baseline; low feature collinearity
+  Strengths: Fast; interpretable coefficients; built-in feature selection
+  (Lasso)
+  Weaknesses: Assumes linearity; sensitive to outliers
+  Taxi-Specific Notes: Good for fare/mile modeling; Lasso selects relevant
+    distance/time interactions
+  ────────────────────────────────────────
+  Algorithm: Random Forest Regressor
+  When to Use: Nonlinear relationships; mixed feature types; robustness needed
+  Strengths: Handles nonlinearity; feature importance; resistant to outliers
+  Weaknesses: Less extrapolative; can overfit with noisy trees
+  Taxi-Specific Notes: Excellent first try; captures complex zone/time
+    interactions
+  ────────────────────────────────────────
+  Algorithm: Gradient Boosting (XGBoost, LightGBM, CatBoost)
+  When to Use: High performance needed; structured/tabular data
+  Strengths: State-of-the-art for tabular; handles categoricals natively
+    (CatBoost); robust
+  Weaknesses: More hyperparameters; longer training
+  Taxi-Specific Notes: CatBoost excels with high-cardinality zones; monitor for
+    overfitting on rare trips
+  ────────────────────────────────────────
+  Algorithm: SVR (RBF kernel)
+  When to Use: Small-medium datasets; clear margin of separation
+  Strengths: Effective in high dimensions; robust via epsilon-insensitive loss
+  Weaknesses: Poor scalability (O(n²)); sensitive to scaling
+  Taxi-Specific Notes: Rarely best for taxi data; consider only if <10k samples
+    and strong theory
+  ────────────────────────────────────────
+  Algorithm: Neural Networks
+  When to Use: Very large datasets (>100k); complex spatiotemporal patterns
+  Strengths: Flexible function approximator; can learn embeddings
+  Weaknesses: Black box; data-hungry; tuning complex
+  Taxi-Specific Notes: Only consider after GBT fails; use for spatial feature
+    learning (e.g., zone embeddings)
+
+  For Classification Tasks
+
+  Algorithm: Logistic Regression
+  When to Use: Baseline; interpretable probability needs
+  Strengths: Probabilistic outputs; fast; regularization options
+  Weaknesses: Linear decision boundaries
+  Taxi-Specific Notes: Good for tip probability; coefficients show driver/zone
+    effects
+  ────────────────────────────────────────
+  Algorithm: Random Forest Classifier
+  When to Use: Mixed data types; interaction capture
+  Strengths: Handles categoricals; feature importance; robust
+  Weaknesses: Probability calibration often poor
+  Taxi-Specific Notes: Strong for vendor/type prediction; use calibration if
+    probs needed
+  ────────────────────────────────────────
+  Algorithm: Gradient Boosting Classifiers
+  When to Use: High AUC needed; imbalanced classes
+  Strengths: Excellent performance; handles class weights; sparsity
+  Weaknesses: Overfitting risk; complex tuning
+  Taxi-Specific Notes: XGBoost with scale_pos_weight for rare events (e.g.,
+    complaints)
+  ────────────────────────────────────────
+  Algorithm: Naive Bayes
+  When to Use: Very high dimensional sparse data; strong independence assumption
+  Strengths: Extremely fast; works with small n; handles missing data
+  Weaknesses: Poor if features correlated
+  Taxi-Specific Notes: Only consider for text-like features (unlikely in taxi
+    data)
+  ────────────────────────────────────────
+  Algorithm: Neural Networks
+  When to Use: Large n; complex pattern recognition
+  Strengths: Learns complex interactions; scalable with data
+  Weaknesses: Requires extensive tuning; interpretability challenge
+  Taxi-Specific Notes: Consider for spatiotemporal prediction (e.g., next trip
+    destination)
+
+  Ensemble Methods Strategy
+
+  When to Employ
+
+  - After establishing strong single-model baseline (e.g., GBT AUC=0.82)
+  - When:
+    - Validation shows high variance (model unstable across folds)
+    - Business requires uncertainty estimates
+    - Competition-level performance needed (rare for internal projects)
+  Techniques
+
+  - Bagging:
+    - Random Forest is already bagged trees; further bagging RF adds little
+    - Use when: High variance in single trees; need extra robustness
+  - Boosting:
+    - Already using if XGBoost/LightGBM/CatBoost selected
+    - Avoid stacking same-type models (e.g., multiple GBTs) → diminishing
+  returns
+  - Stacking:
+    - Base layer: Diverse models (e.g., LR, RF, GBT, NN)
+    - Meta-learner: Simple model (e.g., logistic regression)
+    - When to use:
+        - Base models make different types of errors
+      - Sufficient data (>50k) to train meta-learner without overfit
+      - Business needs calibrated probabilities
+    - Critical:
+        - Meta-learner trained only on out-of-fold predictions from base models
+      - Never use same data for base training and meta-training (leakage)
+  Weighting & Blending
+
+  - Simple average:
+    - Effective if models are uncorrelated in error
+    - Weights = 1/n (equal) or validation performance-based
+  - Weighted average:
+    - Weights inversely proportional to validation error
+    - Requires error estimates from same holdout set
+  - When to avoid:
+    - If one model dominates (weighting adds complexity for little gain)
+    - If interpretability required (ensembles harder to explain)
+
+  Hyperparameter Tuning Strategy
+
+  Search Space Definition
+
+  - Start wide, then narrow:
+    - Initial broad search (e.g., max_depth: 3-15, learning_rate: 0.01-0.3)
+    - Narrow based on promising regions (e.g., if lr=0.1 best, search 0.05-0.2)
+  - Parameter types:
+    - Continuous: Learning rate, regularization strength (log scale)
+    - Discrete: Tree depth, number of estimators (integer scale)
+    - Categorical: Loss function, booster type
+  - Dependencies:
+    - e.g., max_depth only meaningful if boosting algorithm used
+    - e.g., subsample and colsample_bytree interact
+
+  Search Methods
+
+  - Random Search:
+    - Why: More efficient than grid for high-dimensional spaces; finds good
+  regions faster
+    - When: Early exploration; >5 hyperparameters
+    - Tip: Sample from distributions (log-uniform for rates, uniform for depths)
+  - Bayesian Optimization:
+    - Why: Builds surrogate model; focuses search on promising areas
+    - When: Moderate budget (50-100 trials); smooth response surface expected
+    - Tools: scikit-optimize, Hyperopt, Optuna
+  - Grid Search:
+    - Why: Exhaustive; only for <3 parameters or final validation
+    - When: Verifying known good region; small discrete spaces (e.g., 3x3x3)
+  - Avoid:
+    - Exhaustive grid over >4 dimensions (combinatorial explosion)
+    - Manual tuning without tracking (wastes effort; no reproducibility)
+
+  Validation Protocol for Tuning
+
+  - Inner-Outer CV Loop:
+    - Outer loop: Estimates generalization of tuning process (critical!)
+    - Inner loop: Performs actual hyperparameter search on training folds
+    - Why: Prevents tuning bias; honest estimate of tuned model performance
+    - Alternative: Single train/val/test with val used for tuning (acceptable if
+   large val set)
+  - Early Stopping:
+    - Mandatory for boosting/neural nets
+    - Monitor validation loss; stop when no improvement for N rounds
+    - Saves computation; reduces overfitting
+  - Stability Check:
+    - Run top 3 configurations 5x with different seeds
+    - Report mean±std; if std large, simpler hyperparameters preferred
+
+  Experiment Tracking Strategy
+
+  What to Log Religiously
+
+  - Data version:
+    - Hash of training data (or snapshot ID)
+    - Feature engineering script version
+  - Preprocessing:
+    - All scalers/encoders fitted (with parameters)
+    - Train/val/test split definition (dates or indices)
+  - Model:
+    - Algorithm + hyperparameters (full config)
+    - Random seed (for reproducibility)
+    - Training time/resources used
+  - Metrics:
+    - Training/validation/test loss per epoch/round
+    - Final metrics: RMSE, MAE, R² (regression); AUC, accuracy, F1
+  (classification)
+    - Calibration metrics (if probabilistic outputs needed)
+  - Artifacts:
+    - Model pickle/joblib file
+    - Feature importance plot
+    - Validation predictions (for error analysis)
+  - Context:
+    - Git commit hash of code
+    - Notes on data issues encountered that day
+    - Hypothesis being tested
+
+  Tools & Practices
+
+  - Lightweight:
+    - CSV/JSON log + model artifacts in dated directories
+    - Tools: mlflow (lightweight use), sacred, or custom JSON logger
+  - Enterprise:
+    - MLflow tracking server, Weights & Biases, or Neptune.ai
+    - Enables comparison, model registry, collaboration
+  - Critical Practices:
+    - Always log failures: Negative results prevent redundant work
+    - Tag experiments: baseline, feature_set_v2, tuning_run_3
+    - Link to tickets: Connect experiments to Jira/Asana items for traceability
+    - Archive everything: Never delete old models; store in versioned bucket
+
+  Algorithm Selection Heuristics
+
+  Start With:
+
+  - Regression:
+    - Random Forest Regressor (n_estimators=100, max_depth=10)
+    - Why: Strong baseline; handles mixed data; feature importance for insights
+  - Classification:
+    - Random Forest Classifier or Logistic Regression (with
+  class_weight='balanced')
+    - Why: RF handles interactions; LR provides probabilities; both robust
+
+  Progress To If Needed:
+
+  - If baseline underfits (high train AND test error):
+    - Increase model complexity:
+        - GBT (XGBoost/LightGBM) with higher depth/interaction depth
+      - Add polynomial/spline features
+      - Consider neural net for complex patterns
+  - If baseline overfits (low train, high test error):
+    - Increase regularization:
+        - Higher lambda (Lasso/Ridge)
+      - Lower tree depth / higher min_samples_leaf
+      - More dropout (if using NN)
+      - Early stopping patience
+  - If specific weakness:
+    - Poor tail prediction (regression):
+        - Quantile regression or GBM with custom loss
+    - Poor rare class recall (classification):
+        - Focal loss, class weighting, or threshold tuning
+    - Need interpretable probabilities:
+        - Logistic regression with calibration; or isotonic regression on GBT
+  outputs
+
+  Final Selection Criteria
+
+  1. Meets business metric threshold (e.g., RMSE < $1.50 for fare prediction)
+  2. Stable performance across temporal validation folds
+  3. Interpretability sufficient for stakeholder trust
+  4. Training/inference latency meets operational constraints
+  5. Simplest model satisfying above (Occam's razor razor)
+
+  ---
+  9. EVALUATION STRATEGY
+
+  Metric Selection Framework
+
+  Regression Metrics
+
+  - Primary:
+    - RMSE (Root Mean Squared Error):
+        - Penalizes large errors; same units as target
+      - Why: Business often cares about large prediction errors (e.g., $10 fare
+  error worse than two $5 errors)
+    - MAE (Mean Absolute Error):
+        - More robust to outliers; intuitive interpretation
+      - Why: Complements RMSE; shows typical error magnitude
+    - R² (Coefficient of Determination):
+        - Proportion of variance explained; [0,1] range
+      - Why: Quick benchmark vs. naive model; but misleading if model biased
+  - Supplementary:
+    - MAPE (Mean Absolute Percentage Error):
+        - Relative error; useful for comparing across scales
+      - Why: Business thinks in % errors ("our predictions are within 15%")
+      - Caution: Infinite if actual=0; skewed by small denominators
+    - Median AE:
+        - Robust to outliers; less influenced by extreme errors
+      - Why: Better represents "typical" user experience
+  - When to prioritize:
+    - RMSE: When large errors are disproportionately costly (e.g., mispricing
+  long trips)
+    - MAE: When all errors cost similarly per unit (e.g., driver penalty per
+  minute ETA error)
+    - R²: Only for communication; never as sole optimization target
+
+  Classification Metrics
+
+  - Primary (depends on business cost):
+    - AUC-ROC:
+        - Threshold-invariant; measures ranking quality
+      - Why: Good for comparing models; insensitive to class imbalance
+      - Limitation: Optimizes for ranking, not absolute probability accuracy
+    - F1-Score:
+        - Harmonic mean of precision/recall; balances FP/FN costs
+      - Why: When both false positives and false negatives matter
+      - Caution: Arbitrary 0.5 threshold; depends on class balance
+  - Supplementary:
+    - Precision-Recall AUC (PR-AUC):
+        - Better than ROC-AUC when positive class rare (<10%)
+      - Why: Focuses on performance where it matters (rare event detection)
+    - Confusion Matrix:
+        - Breaks down error types; essential for cost analysis
+      - Why: Reveals if model is biased toward over/under-prediction
+    - Calibration Metrics:
+        - Brier score, calibration plot, Hosmer-Lemeshow test
+      - Why: Critical if using probabilities for decision thresholds (e.g., "tip
+   if P>0.3")
+  - When to prioritize:
+    - AUC-ROC: When model used for ranking (e.g., "show top 10% likely to tip")
+    - F1/PR-AUC: When optimizing for discrete action with cost imbalance
+    - Precision: When false positives very costly (e.g., flagging legitimate
+  trips as fraud)
+    - Recall: When false negatives very costly (e.g., missing safety incidents)
+
+  ROC-AUC Strategy Deep Dive
+
+  When to Use
+
+  - Appropriate:
+    - Binary classification with meaningful ranking
+    - Comparing model discriminative ability irrespective of threshold
+    - Initial model screening stage
+  - Inappropriate:
+    - When operating point is fixed by business rules (e.g., "alert if P>0.9")
+    - When class imbalance extreme and business cares about absolute counts
+    - When miscalibration risks decisions (e.g., predicted 70% chance but actual
+   30%)
+
+  Interpretation & Limitations
+
+  - What it measures:
+    - Probability that a random positive instance ranks higher than random
+  negative one
+    - Equivalent to Wilcoxon-Mann-Whitney U statistic
+  - Key insight:
+    - AUC=0.5: Random classifier; AUC=1.0: Perfect ranking
+    - But: Two models with same AUC can have vastly different precision at
+  operating point
+  - Danger zones:
+    - High AUC but poor precision at needed recall (e.g., AUC=0.85 but at 80%
+  recall, precision=20%)
+    - AUC insensitive to class distribution; misleading if train/test prevalence
+   differs
+  - Best practices:
+    - Always pair with precision-recall curve when prevalence <15%
+    - Report AUC at specific recall levels (e.g., "AUC at 80% recall = 0.62")
+    - Use partial AUC if only relevant FPR range (e.g., FPR<0.1 for screening
+  tests)
+
+  Precision-Recall Tradeoff Analysis
+
+  Business Context Mapping
+
+  - High precision critical when:
+    - False positives trigger costly actions (e.g., refusing service based on
+  fraud prediction)
+    - Example: "Only flag trip as fraud if >95% certain" → optimize for
+  precision at high threshold
+  - High recall critical when:
+    - False negatives miss important events (e.g., failing to detect unsafe
+  driver)
+    - Example: "Catch 95% of drunk driving incidents" → optimize for recall
+  - F1-optimal when:
+    - Equal cost of FP and FN; or when seeking balanced operating point
+    - Example: "Maximize correct tip predictions" → F1 at threshold where
+  precision=recall
+
+  Analysis Protocol
+
+  1. Plot precision-recall curve from validation predictions
+  2. Identify business operating point:
+    - Map to cost matrix:
+        - Cost(FP) × FP + Cost(FN) × FN = Total expected cost
+    - Find threshold minimizing expected cost
+  3. Calculate metrics at operating point:
+    - Precision, recall, F1, specificity
+    - Expected cost per prediction
+  4. Sensitivity analysis:
+    - How much does cost change if threshold shifts ±0.05?
+    - If flat region: robust to threshold choice; if steep: requires precise
+  calibration
+
+  Error Analysis Strategy
+
+  Regression Error Analysis
+
+  - Residual plots:
+    - Predicted vs residuals:
+        - Funnel shape → heteroscedasticity (variance changes with prediction)
+      - Curve → missing nonlinear term
+      - Offset → bias (model systematically over/under-predicts)
+    - Residuals vs features:
+        - Trend in residuals vs hour → missing time-of-day effect
+      - Cluster in residuals → subgroup model misses
+    - QQ-plot of residuals:
+        - Heavy tails → outliers or incorrect error distribution assumption
+      - S-shaped → missing skewness in features
+  - Error slicing:
+    - Group by feature bins (e.g., distance 0-5km, 5-10km, etc.)
+    - Report MAE/RMSE per slice; identify where model struggles
+    - Example: "Error doubles for trips >20km" → suggests missing long-distance
+  feature
+  - Qualitative review:
+    - Examine top 10 worst predictions
+    - Look for patterns:
+        - All airport trips? → missing zone feature
+      - All rainy days? → missing weather interaction
+      - All short trips with high fare? → waiting time not captured
+
+  Classification Error Analysis
+
+  - Confusion matrix deep dive:
+    - False positives:
+        - What do these instances have in common?
+      - Example: All FP trips are short downtown rides → model confuses short
+  trips with tipping behavior
+    - False negatives:
+        - What are we missing?
+      - Example: All FN trips have passenger_count>4 → larger groups tip less
+  but model didn't learn
+  - Example-based review:
+    - Examine top 10 FP and FN by prediction confidence
+    - High-confidence errors often reveal systematic flaws
+    - Low-confidence errors may be irreducible noise
+  - Probability calibration check:
+    - Bin predictions by probability (e.g., 0.6-0.7)
+    - Plot mean predicted vs actual frequency in bin
+    - Deviations indicate miscalibration; Platt scaling or isotonic regression
+  may help
+
+  Overfitting & Underfitting Detection
+
+  Overfitting Signs
+
+  - Training error << Validation error:
+    - Classic sign; model memorizes training noise
+    - Quantify: (Val error - Train error) / Train error > 0.3 suggests concern
+  - Validation error increases with more training:
+    - Especially clear in learning curves (plot error vs. training size)
+    - If validation error starts rising after X epochs/rounds → stop there
+  - High variance in performance across CV folds:
+    - Indicates model sensitive to specific training samples
+    - Especially troubling if folds are temporally ordered (suggests concept
+  drift overfit)
+  - Complex model performs no better than simple baseline:
+    - Suggests extra capacity fitting noise, not signal
+  - Remedies:
+    - Increase regularization (lambda, dropout, min_samples_leaf)
+    - Reduce model complexity (depth, estimators)
+    - Early stopping
+    - More data (if feasible)
+    - Simpler feature set
+
+  Underfitting Signs
+
+  - Training error ≈ Validation error >> Bayes error:
+    - Both high; model too simple to capture patterns
+    - Quantify: If naive baseline error is close to model error → severe
+  underfit
+  - Learning curves:
+    - Both training and validation error high and converging
+    - Adding more data doesn't help (yet)
+  - High bias in residuals:
+    - Systematic patterns in residual plots (e.g., U-shape indicating missed
+  quadratic term)
+    - Feature importance shows weak signals across all features
+  - Remedies:
+    - Increase model complexity (depth, features)
+    - Feature engineering (interactions, transforms)
+    - Reduce regularization
+    - Try different algorithm family (e.g., move from linear to tree-based)
+
+  Bias-Variance Decomposition (Conceptual)
+
+  - Expected error = Bias² + Variance + Irreducible error
+  - High bias:
+    - Model underfits; predictions consistently off true value
+    - Fixed by: More expressive model, better features
+  - High variance:
+    - Model overfits; predictions change wildly with small data changes
+    - Fixed by: More data, regularization, simpler model
+  - Practical check:
+    - If collecting more data reduces validation error → variance dominant
+    - If collecting more data does nothing → bias dominant
+    - In taxi data:
+        - Early projects often bias-dominated (missing key features like time
+  interactions)
+      - Later projects may become variance-dominated (over-engineered features)
+
+  Business-Aligned Metric Selection
+
+  Process
+
+  1. Define cost matrix:
+    - Explicitly state business cost of each error type
+    - Example for trip rejection system:
+        - Cost(false positive) = $20 (lost fare + customer dissatisfaction)
+      - Cost(false negative) = $5 (minor detour inefficiency)
+  2. Simulate expected cost:
+    - For each candidate threshold/model:
+        - Expected cost = Σ [P(class) × P(error|class) × Cost(error)]
+    - Choose threshold/model minimizing expected cost
+  3. Validate with business KPIs:
+    - If model deployed, track:
+        - Actual revenue impact
+      - Customer satisfaction change
+      - Operational metric shift (e.g., average pickup time)
+  4. Communicate in business terms:
+    - Never say "AUC improved by 0.02"
+    - Say: "Model reduces expected rejection cost by $0.03/trip → $12k/month
+  savings"
+
+  ---
+  10. PRODUCTION-LEVEL THINKING
+
+  Building Reusable Pipelines
+
+  Pipeline Architecture Principles
+
+  - Immutability:
+    - Each pipeline stage produces new artifacts; never modifies input in-place
+    - Enables reproducibility and debugging
+  - Explicit interfaces:
+    - Clear input/output schemas (e.g., "expects DataFrame with columns
+  [X,Y,Z]")
+    - Use schema validation (e.g., Pandera, Great Expectations) at stage
+  boundaries
+  - Idempotency:
+    - Running same pipeline twice yields same output
+    - Critical for retry safety and caching
+  - Separation of concerns:
+    - Data ingestion ≠ feature engineering ≠ model training ≠ evaluation
+    - Each stage testable in isolation
+
+  Scikit-Learn Pipeline Implementation
+
+  - Preprocessing Pipeline:
+    - ColumnTransformer handling:
+        - Numerical: Imputer → Scaler
+      - Categorical: Imputer → Encoder (OneHot/Target)
+      - Datetime: Extractor → Cyclical encoder → Scaler
+    - Critical:
+        - Fit transformers only on training data
+      - Never peek at validation/test during fitting
+  - Model Pipeline:
+    - Pipeline([('preprocess', preprocess_pipe), ('model', model)])
+    - Enables single .fit() and .predict() calls
+    - Ensures identical preprocessing at train/predict time
+  - When to avoid monolithic pipeline:
+    - If preprocessing very slow (e.g., geospatial enrichment)
+    - Consider separate feature store with versioned features
+
+  Saving Transformers & Model Serialization
+
+  Transformer Persistence
+
+  - Joblib vs Pickle:
+    - Joblib: Preferred for scikit-learn objects (efficient numpy handling)
+    - Pickle: Universal but slower; security risk with untrusted data
+  - Versioning:
+    - Save with metadata:
+  metadata = {
+      'version': 'v2.1',
+      'features_used': ['distance', 'hour_sin', ...],
+      'train_date': '2026-05-01',
+      'scikit_version': '1.4.0'
+  }
+  joblib.dump((preprocessor, model, metadata), 'model_v2.1.joblib')
+
+  - Validation on load:
+    - Check metadata compatibility before use
+    - Raise error if feature set or version mismatched
+
+  Model-Specific Considerations
+
+  - Tree-based models:
+    - Generally serialize well; check for random state persistence
+  - Linear models:
+    - Coefficients stable; watch for solver convergence differences
+  - Neural networks:
+    - Framework-specific (TensorFlow SavedModel, PyTorch torch.save)
+    - Require same framework version for loading
+  - Critical test:
+    - Load serialized model on clean environment
+    - Verify predictions match original within tolerance
+
+  Experiment Tracking & Model Versioning
+
+  Tracking System Requirements
+
+  - Immutable experiment logs:
+    - Once written, experiment record cannot be altered
+    - Prevents retroactive "improvement" of results
+  - Searchable metadata:
+    - Query by: date, feature set, hyperparameter range, metric threshold
+    - Essential for model archaeology
+  - Artifact storage:
+    - Link to model files, plots, data slices
+    - Enables full reproduction without re-running
+  - Comparison tools:
+    - Side-by-side metric comparison
+    - Feature importance drift visualization
+    - Prediction distribution comparison
+
+  Model Versioning Strategy
+
+  - Semantic versioning for models:
+    - MAJOR.MINOR.PATCH
+        - MAJOR: Architecture change (e.g., LR → GBT)
+      - MINOR: Feature set change
+      - PATCH: Hyperparameter tune / retrain same config
+  - Staging environments:
+    - Development: Latest experiment; for testing new ideas
+    - Staging: Promotion criteria met; undergoes integration testing
+    - Production: Currently serving traffic; only promoted after validation
+  - Promotion gates:
+    - To staging:
+        - Passes unit tests on API contract
+      - Validation metrics within X% of baseline
+      - No regressions on key slices (e.g., airport trips)
+    - To production:
+        - Staging performance stable for 72h
+      - No drift in input distribution
+      - Business A/B test shows positive impact
+  - Rollback capability:
+    - Maintain ability to revert to previous version in <5min
+    - Store previous version artifacts; not just delete
+
+  Reproducibility Practices
+
+  Environmental Control
+
+  - Exact dependencies:
+    - requirements.txt pinned to specific versions (not >=)
+    - Include OS and Python version if critical (python==3.11.2)
+  - Deterministic seeds:
+    - Set numpy, random, torch, tensorflow seeds
+    - Critical: Also set seeds for any library with randomness (e.g.,
+  scikit-learn shuffling)
+    - Verify: Same seed → same output across runs
+  - Hardware consistency:
+    - Note CPU/GPU model if using GPU-sensitive ops
+    - Prefer CPU for reproducibility unless GPU essential
+  - Data freezing:
+    - Hash of input data saved with experiment
+    - Never re-run with "latest data" without explicit versioning
+
+  Protocol for Reproducibility Claims
+
+  - To claim "reproducible":
+    a. Same code version (git hash)
+    b. Same data version (input hash)
+    c. Same environment (dependencies + OS)
+    d. Same seeds
+    e. Same command → same output
+  - Documentation:
+    - README must specify:
+        - Exact reproduction command
+      - Expected runtime
+      - Known non-deterministic sources (if any)
+      - Tolerance for floating point differences
+  - When full reproducibility impossible:
+    - Acknowledge sources of non-determinism (e.g., thread scheduling)
+    - Report distribution of outcomes over 10 runs
+    - Focus on reproducibility of conclusions, not bit-for-bit output
+
+  Deployment Readiness
+
+  API Design Considerations
+
+  - Input contract:
+    - Strict schema validation (e.g., Pydantic, JSON Schema)
+    - Reject malformed requests early with clear error codes
+    - Example:
+  {
+    "required": ["pickup_lat", "pickup_lon", "dropoff_lat", "dropoff_lon",
+  "timestamp"],
+    "properties": { "passenger_count": {"minimum":1, "maximum":6} }
+  }
+  - Output contract:
+    - Consistent structure:
+  {
+    "prediction": 12.45,
+    "prediction_units": "USD",
+    "confidence_interval": [11.20, 13.70],
+    "model_version": "fare_predictor_v2.1",
+    "timestamp": "2026-05-12T10:30:00Z"
+  }
+  - Error handling:
+    - Distinguish client errors (4xx) from server errors (5xx)
+    - Log server errors with traceback; never expose internals to client
+  - Performance:
+    - Target latency: 95th percentile <100ms for real-time
+    - Monitor: Request rate, latency, error rate, CPU/memory
+
+  Containerization & Infrastructure
+
+  - Dockerfile essentials:
+    - Multi-stage build to minimize image size
+    - Non-root user for security
+    - Health check endpoint (/health)
+    - Expose only necessary ports
+  - Configuration management:
+    - Environment-specific config (dev/stage/prod)
+    - Secrets never in image; use vault or sealed secrets
+    - Feature flags for safe rollout
+  - Scalability:
+    - Stateless preferred; store state in external store (Redis, DB)
+    - Horizontal pod autoscaling based on CPU/request rate
+    - Circuit breaker for downstream dependencies
+  - Observability:
+    - Structured logging (JSON) to central system
+    - Key metrics: latency, error rate, prediction drift
+    - Distributed tracing for request journeys
+
+  Monitoring Strategy
+
+  Data Drift Detection
+
+  - Input feature drift:
+    - Population Stability Index (PSI):
+        - PSI = Σ [(actual_% - expected_%) × ln(actual_% / expected_%)]
+      - PSI > 0.2: Significant drift; >0.5: Severe drift
+    - Kolmogorov-Smirnov test:
+        - Non-parametric; detects distribution shifts
+      - Sensitive to sample size; use with effect size
+    - When to trigger:
+        - PSI > 0.3 on >20% of features → investigate data source
+      - Sudden shift in key feature (e.g., average trip distance drops 30%)
+  - Concept drift detection:
+    - Windowed performance:
+        - Track rolling window of prediction error (e.g., last 1h)
+      - Compare to baseline performance
+      - Significant increase → model stale
+    - Drift detection methods:
+        - ADWIN, DDM, EDDM (for streaming)
+      - Simple: Compare validation error on recent vs. historical data
+  - Response protocol:
+    - Level 1 (Warning): PSI 0.1-0.2 → alert data engineering
+    - Level 2 (Investigation): PSI >0.2 or perf drop >10% → root cause analysis
+    - Level 3 (Action): Perf drop >20% → trigger retrain or rollback
+
+  Model Performance Monitoring
+
+  - Ground truth lag handling:
+    - Acknowledge delay in getting true labels (e.g., tips settled weekly)
+    - Use proxy metrics when available (e.g., driver earnings per hour)
+    - Monitor: Prediction stability (std of predictions over time)
+  - Key metrics to track:
+    - Prediction distribution:
+        - Mean, std, skewness of predictions
+      - Shift indicates input drift or model change
+    - Error metrics:
+        - MAE/RMSE on available ground truth (lagged)
+      - Compare to service level objectives (SLAs)
+    - Business impact:
+        - If predicting tip: Actual tip rate vs predicted
+      - If predicting demand: Actual trips vs forecasted trips
+  - Alerting thresholds:
+    - Critical:
+        - MAE > 2× baseline MAE
+      - Prediction mean outside 3σ of historical range
+      - Business KPI deviation >15% from forecast
+    - Warning:
+        - MAE > 1.5× baseline
+      - Prediction std changing rapidly
+      - Feature missing rate >5%
+
+  Feedback Loop for Retraining
+
+  - Retrain triggers:
+    - Time-based: Nightly/weekly if data stabilizes quickly
+    - Performance-based: Validation MAE > threshold for 24h
+    - Data-based: New data volume >20% since last train
+    - Drift-based: PSI >0.3 on critical features
+  - Retrain protocol:
+    - Data window:
+        - Fixed window (e.g., last 90 days) or expanding window
+      - Avoid ancient data if concept drift suspected
+    - Validation:
+        - Must hold out most recent data for honest assessment
+      - Never train and validate on same time period
+    - Deployment:
+        - Shadow mode first: Run new model alongside old; compare predictions
+      - A/B test: 5% traffic to new model; measure business impact
+      - Full rollout only if non-inferior/superior
+
+  ---
+  11. FINAL DELIVERABLES
+
+  Essential Artifacts for Project Closure
+
+  1. EDA Report
+
+  - Format: Self-contained HTML/PDF (not just notebook)
+  - Contents:
+    - Data dictionary with source/meaning of every column
+    - Summary of data quality issues found and actions taken
+    - Key distributions (target, features) with interpretations
+    - Top 5 business insights from EDA (e.g., "Night shifts yield 22% higher
+  fare/mile")
+    - Data quality scorecard (completeness, validity, uniqueness metrics)
+  - Audience: Business stakeholders, future data scientists
+
+  2. Business Insights Summary
+
+  - Format: 1-2 page executive brief
+  - Contents:
+    - 3-5 actionable insights with estimated impact
+        - Example: "Implementing dynamic pricing Zone 7-9AM could increase
+  revenue by 8-12%"
+    - Data requirements for implementation
+    - Rough effort estimate for acting on insights
+    - Risks and assumptions
+  - Audience: Product managers, operations leads
+
+  3. Data Cleaning Report
+
+  - Format: Technical appendix
+  - Contents:
+    - Complete list of transformations applied
+        - Example: "Dropped 12,345 rows with negative trip_distance (0.8% of
+  data)"
+    - Imputation strategies per column
+    - Outlier handling methodology
+    - Before/after statistics for key metrics
+    - Data lineage showing cleaning steps
+  - Audience: Data engineers, auditors
+
+  4. Feature Engineering Documentation
+
+  - Format: Living document (wiki or markdown)
+  - Contents:
+    - Feature catalog:
+        - Name, description, calculation method, data type
+      - Business rationale and assumptions
+      - Known limitations (e.g., "Breaks down near international date line")
+    - Feature versioning:
+        - Which features added/removed in each iteration
+      - Deprecation warnings for sunset features
+    - Feature importance from final model
+  - Audience: ML engineers, feature store maintainers
+
+  5. Model Comparison Report
+
+  - Format: Comparative analysis
+  - Contents:
+    - Table of all candidate models tested
+        - Algorithm, hyperparameters, training time
+      - Validation/test metrics (with confidence intervals)
+      - Key strengths/weaknesses
+    - Statistical significance testing of differences
+        - Example: "XGBoost AUC significantly better than RF (p<0.01 via DeLong
+  test)"
+    - Learning curves for top 2 models
+    - Feature importance comparison (rank correlation)
+    - Error analysis highlighting where models differ
+  - Audience: ML team, technical stakeholders
+
+  6. Final Trained Pipeline
+
+  - Contents:
+    - Serialized preprocessing pipeline (ColumnTransformer)
+    - Serialized model object
+    - Metadata file:
+        - Training data hash, date, size
+      - Feature list and expected types
+      - Model version and git commit
+      - Performance on holdout set
+      - Known failure modes
+    - Requirements.txt/environment.yml
+  - Validation:
+    - Includes script to load and run inference on sample input
+    - Documented expected latency and memory footprint
+
+  7. Deployment-Ready Artifacts
+
+  - Contents:
+    - Dockerfile for model serving
+    - Kubernetes/YAML deployment manifests
+    - API OpenAPI/Swagger specification
+    - Sample request/response payloads
+    - Monitoring dashboard configuration (Grafana JSON)
+    - Alerting rules (Prometheus/SQL)
+    - Rollback playbook
+  - Testing:
+    - Includes load test script (e.g., Locust)
+    - Documented uptime and error rate SLAs
+
+  ---
+  12. PROJECT EXECUTION TIMELINE
+
+  Phase-Wise Plan with Gates and Deliverables
+
+  Phase 1: Dataset Understanding (Days 1-3)
+
+  - Goals:
+    - Formulate hypotheses
+    - Assess data suitability for business problem
+    - Establish success criteria
+  - Activities:
+    - Stakeholder interviews (business objectives, constraints)
+    - Initial data inspection (shape, types, basic stats)
+    - Data dictionary creation
+    - Problem refinement session
+  - Deliverables:
+    - One-page problem statement
+    - Data quality initial assessment
+    - List of open questions for SME
+  - Gate criteria:
+    - Business objective documented and agreed
+    - Data covers required time period and geographic scope
+    - No show-stopper data issues (e.g., 100% missing target)
+
+  Phase 2: Data Cleaning (Days 4-8)
+
+  - Goals:
+    - Produce analysis-ready dataset
+    - Document all transformations
+    - Quantify impact of cleaning
+  - Activities:
+    - Automated quality scanning (missing, duplicates, ranges)
+    - Collaborative validation with SME on flagged records
+    - Implement cleaning scripts with logging
+    - Before/after analysis on key distributions
+    - Outlier investigation and handling decision
+  - Deliverables:
+    - Cleaned dataset (versioned)
+    - Data cleaning report
+    - Data quality scorecard (pre/post)
+    - Cleaning pipeline (reusable script)
+  - Gate criteria:
+    - <1% missing in critical features
+    - No invalid values in key columns (fares, distances, times)
+    - Documentation complete for all transformations
+    - SME sign-off on cleaning logic
+
+  Phase 3: Exploratory Data Analysis (Days 9-15)
+
+  - Goals:
+    - uncover patterns
+    - generate feature hypotheses
+    - assess relationships with target
+  - Activities:
+    - Univariate analysis (distributions, outliers)
+    - Bivariate analysis (target correlations, group comparisons)
+    - Multivariate analysis (interactions, clustering)
+    - Business insight workshops
+    - Visualization dashboard creation
+  - Deliverables:
+    - EDA report (interactive + static)
+    - List of top 10 feature hypotheses with rationale
+    - Business insights summary
+    - Feature prioritization matrix (impact vs. effort)
+  - Gate criteria:
+    - At least 3 actionable feature hypotheses identified
+    - Clear relationship established between features and target
+    - No major surprises requiring problem reframing
+    - EDA reviewed by SME and ML lead
+
+  Phase 4: Feature Engineering (Days 16-22)
+
+  - Goals:
+    - build feature set
+    - avoid leakage
+    - create interpretable features
+  - Activities:
+    - Implement baseline features (time, distance, basic encodings)
+    - Create domain-driven features (zone-based, temporal)
+    - Engineer interaction features based on EDA
+    - Build feature store with versioning
+    - Validate feature stability (train/test PSI)
+    - Document all features in catalog
+  - Deliverables:
+    - Feature engineering documentation
+    - Trained feature pipeline (reusable)
+    - Feature importance from baseline model
+    - List of features dropped due to leakage/risk
+    - Feature set ready for modeling
+  - Gate criteria:
+    - All features pass leakage check (trained only on past data)
+    - <5% of features have PSI>0.2 between train/test
+    - Feature documentation complete
+    - Baseline model performance established
+
+  Phase 5: Modeling (Days 23-30)
+
+  - Goals:
+    - Train and validate candidate models
+    - Select final model
+    - Establish baseline performance
+  - Activities:
+    - Implement baseline models (linear, tree)
+    - Define train/validation/test split (temporal)
+    - Hyperparameter tuning for top 2 algorithm families
+    - Cross-validated evaluation with statistical testing
+    - Error analysis and bias/variance diagnosis
+    - Model selection business case
+  - Deliverables:
+    - Model comparison report
+    - Final trained pipeline (model + preprocess)
+    - Experiment tracking log
+    - Model card documenting performance and limitations
+    - Prediction vs actual plots for key segments
+  - Gate criteria:
+    - Final model meets business metric threshold (e.g., RMSE<$2.0)
+    - Performance stable across temporal validation folds
+    - No critical failure modes identified in error analysis
+    - Model exceeds naive baseline by meaningful margin
+    - SME and ML lead agree on selection
+
+  Phase 6: Evaluation (Days 31-35)
+
+  - Goals:
+    - rigorously assess model
+    - prepare for deployment
+    - quantify business impact
+  - Activities:
+    - Full test set evaluation (holdout, never touched during training)
+    - Business impact simulation (using cost matrix)
+    - Calibration analysis (if probabilistic outputs needed)
+    - Latency and throughput benchmarking
+    - Sensitivity analysis (feature importance, SHAP values)
+    - Deployment readiness checklist
+  - Deliverables:
+    - Final evaluation report
+    - Business impact estimate
+    - Performance benchmark sheet
+    - Deployment readiness sign-off
+    - Monitoring plan draft
+  - Gate criteria:
+    - Test set performance within 5% of validation estimate
+    - Business impact estimate exceeds minimum threshold
+    - All non-functional requirements met (latency, security, etc.)
+    - Monitoring plan approved by ops team
+
+  Phase 7: Optimization (Days 36-40)
+
+  - Goals:
+    - refine model
+    - reduce complexity
+    - prepare for efficient deployment
+  - Activities:
+    - Feature importance-driven pruning
+    - Try simpler model families (e.g., linear vs tree)
+    - Quantize/compress model if needed
+    - Optimize feature pipeline for latency
+    - A/B test design (if applicable)
+    - Document known limitations and failure modes
+  - Deliverables:
+    - Optimized model pipeline
+    - Latency/benchmark report
+    - Model limitations document
+    - A/B test protocol (if used)
+    - Final model version for promotion
+  - Gate criteria:
+    - Latency meets SLA (e.g., P95<50ms)
+    - Performance non-inferior to unoptimized model
+    - All known failure modes documented and mitigated
+    - Optimization does not introduce new failure modes
+
+  Phase 8: Deployment Preparation (Days 41-45)
+
+  - Goals:
+    - enable safe deployment
+    - establish monitoring
+    - knowledge transfer
+  - Activities:
+    - Create deployment artifacts (Dockerfile, manifests)
+    - Implement monitoring dashboards and alerts
+    - Run deployment playbook in staging
+    - Conduct knowledge transfer sessions
+    - Create runbook for common issues
+    - Final security and compliance review
+  - Deliverables:
+    - Deployment-ready artifact bundle
+    - Monitoring dashboard (live in staging)
+    - Alerting rules configured
+    - Runbook for operators
+    - Knowledge transfer completion record
+    - Sign-off from DevOps, Security, and Business
+  - Gate criteria:
+    - Successful staging deployment (no critical errors)
+    - Monitoring shows expected behavior
+    - All documentation complete and reviewed
+    - Business owner signs off on release
+
+  Timeline Visualization
+
+  [W1] ────[Problem Definition]────[Data Inspection]───►
+            │                   │
+            ▼                   ▼
+  [W2] ────[Cleaning]─────────[Feature Eng]───────►
+            │                   │
+            ▼                   ▼
+  [W3] ────[Modeling]──────────[Evaluation]───────►
+            │                   │
+            ▼                   ▼
+  [W4] ────[Optimization]──────[Deployment Prep]──►
+  Note: Each phase includes buffer time for unexpected issues; actual execution 
+  may overlap phases based on readiness.
+
+  ---
+  13. MENTORSHIP GUIDANCE
+
+  Common Beginner Mistakes (and How to Avoid Them)
+
+  ❌ Mistake: Skipping or rushing EDA
+
+  - Why it happens: Eager to build models; sees EDA as "boring"
+  - Consequence:
+    - Builds complex models on flawed assumptions
+    - Misses critical data quality issues
+    - Engineers features that leak or are meaningless
+  - How to avoid:
+    - Timebox EDA: Minimum 40% of project time
+    - Deliverable-driven: Require EDA report before modeling
+    - Pair with SME: Have domain expert review plots and interpretations
+    - Hypothesis log: Document every insight as "If [X], then [Y] implies
+  [action]"
+
+  ❌ Mistake: Target leakage in features
+
+  - Why it happens:
+    - Using future information (e.g., dropoff_time to predict pickup_duration)
+    - Creating features from target components (e.g., fare_per_mile when
+  predicting fare)
+    - Inadequate temporal splitting
+  - Consequence:
+    - Inflated validation performance
+    - Model fails catastrophically in production
+  - How to avoid:
+    - Leakage checklist:
+        - ❌ Any feature using data after prediction time
+      - ❌ Any feature that is mathematical function of target
+      - ❌ Any feature requiring knowledge not available at prediction time
+    - Temporal split first: Define train/val/test cutoff before any feature
+  engineering
+    - Proxy test: Train model to predict known constant (should fail); if it
+  succeeds → leakage
+
+  ❌ Mistake: Over-engineering features
+
+  - Why it happens:
+    - Belief that more features = better model
+    - Not understanding diminishing returns
+    - Enjoyment of clever transformations
+  - Consequence:
+    - Increased complexity without gain
+    - Higher maintenance burden
+    - Risk of overfitting to noise
+  - How to avoid:
+    - Start minimal: 5-7 features max for first model
+    - Feature budget: Allocate "feature points"; complex features cost more
+    - Prove value: Only add feature if it improves validation metric by >0.5%
+    - Kill your darlings: Remove favorite feature if it doesn't help
+
+  ❌ Mistake: Ignoring business context in metrics
+
+  - Why it happens:
+    - Optimizing for accuracy/AUC without cost consideration
+    - Not translating model output to business decisions
+    - Assuming higher metric = better business outcome
+  - Consequence:
+    - Model optimized for wrong objective
+    - Stakeholders lose trust when predictions don't improve KPIs
+  - How to avoid:
+    - Cost matrix workshop: Early and often with stakeholders
+    - Metric mapping: Show how RMSE/MAE maps to business cost
+    - Decision simulation: "If we use this model, what action do we take and
+  what is outcome?"
+    - Track business KPIs: Not just model metrics in production
+
+  ❌ Mistake: Underestimating data preparation time
+
+  - Why it happens:
+    - Hollywood portrayal of ML as model-tuning montage
+    - Forgetting that real data is messy
+    - Assuming "clean data" exists somewhere
+  - Consequence:
+    - Project timeline blown
+    - Rushed cleaning → quality issues
+    - Blaming model for data problems
+  - How to avoid:
+    - Rule of thumb: 60% time on data (understanding + cleaning + EDA)
+    - Track actual time: Compare estimated vs actual for data tasks
+    - Celebrate cleaning wins: "Removed 200k duplicate trips" is an achievement
+    - Involve SME early: They know where bodies are buried
+
+  What to Prioritize First
+
+  1. Business problem clarity:
+    - Without this, you're optimizing for nothing
+    - Spend time until you can explain the project to a smart outsider in 60
+  seconds
+  2. Data quality assessment:
+    - Garbage in, gospel out
+    - Know your data's flaws before trusting any model
+  3. Simple baseline model:
+    - Establishes what's learnable from the data
+    - Prevents overfitting to noise via excessive complexity
+  4. Validation strategy integrity:
+    - If your validation leaks, everything after is fiction
+    - Get this right before tuning a single hyperparameter
+
+  What Usually Consumes Most Project Time
+
+  - Data-related tasks (60-70%):
+    - Understanding context and limitations (20%)
+    - Cleaning and quality assurance (25%)
+    - Exploratory analysis and feature engineering (15-25%)
+  - Modeling and tuning (20-30%):
+    - Baseline to advanced model progression (10%)
+    - Hyperparameter tuning and validation (10-15%)
+    - Error analysis and interpretation (5-10%)
+  - Deployment and monitoring (10-15%):
+    - Making model usable in production (5-10%)
+    - Setting up feedback loops and monitoring (5%)
+
+  How to Think Like a Real Data Scientist
+
+  - Curious skeptic:
+    - Question everything: "Why is this column here? What could be wrong with
+  it?"
+    - Assume data is guilty until proven innocent
+    - Look for anomalies that tell stories (not just noise to remove)
+  - Business translator:
+    - Constantly ask: "How would this change a decision?"
+    - Speak in terms of impact, not algorithms
+    - Translate model outputs into actions
+  - Process engineer:
+    - Build repeatable, auditable workflows
+    - Document assumptions and limitations
+    - Design for failure (what happens when data changes?)
+  - Evidence-based:
+    - Let data overturn hypotheses (don't torture data to confirm beliefs)
+    - Require proof before accepting claims
+    - Update beliefs proportionally to evidence
+  - Lazy optimizer:
+    - Seek simplest solution that works
+    - Avoid premature optimization
+    - Automate the repetitive parts
+
+  Documenting Findings Properly
+
+  The "So What?" Test
+
+  - Every insight, feature, or model choice must answer:
+    - "If this is true, what would we do differently?"
+    - If no action follows, it's trivia, not insight
+
+  Documentation Layers
+
+  1. Lab notebook (temporary):
+    - Raw exploration; date-stamped
+    - Includes dead ends and failed ideas
+  2. Technical documentation (permanent):
+    - What was done and why
+    - Assumptions, limitations, validation
+    - Enough for competent practitioner to reproduce
+  3. Executive summary (business-facing):
+    - What was learned
+    - What actions are recommended
+    - Estimated impact and confidence
+  4. Runbook (operational):
+    - How to use/maintain the solution
+    - Troubleshooting common issues
+    - Escalation paths
+
+  Key Documentation Principles
+
+  - Assume future amnesia:
+    - Write for yourself 6 months in the future (or a colleague)
+    - Include context: "We did X because Y"
+  - Decision log:
+    - Record not just what was chosen, but rejected alternatives and why
+    - Example: "Rejected neural net because: 1) <50k samples 2) needs
+  interpretability"
+  - Error catalog:
+    - Maintain list of known failure modes with triggers and fixes
+    - Example: "If pickup_lat > 90, model returns NaN → fix: clip to [-90,90]
+  before predict"
+  - Version everything:
+    - Code (git), data (hash), model (metadata), documentation (date)
+
+  Making This Project Resume-Worthy
+
+  Beyond "Built a Model"
+
+  - Quantify business impact:
+    - ❌ "Built a fare prediction model"
+    - ✅ "Developed fare prediction model reducing RMSE by 18% ($1.20/trip),
+  enabling dynamic pricing projected to increase annual revenue by $2.3M"
+  - Highlight scale and complexity:
+    - Mention data volume, feature count, latency constraints
+    - Example: "Engineered 47 features from 12TB of trip data; model serves 5k
+  RPM with P95 latency <80ms"
+  - Show problem-solving process:
+    - Describe key challenges overcome
+    - Example: "Solved temporal leakage issue by implementing expanding window
+  validation, preventing 22% overoptimism in initial estimates"
+  - Emphasize transferable skills:
+    - Feature engineering creativity
+    - Validation rigor
+    - Stakeholder communication
+    - Production mindset
+  - Include artifacts:
+    - Link to GitHub repo (with documentation)
+    - Share model card or one-pager
+    - If possible, describe how solution is being used
+
+  Resume Bullet Template
+
+  [Action verb] + [What you built] + [Using what methods] +
+  [Quantifiable business/technical result] +
+  [Context of scale/complexity]
+
+  Example:
+  "Developed fare prediction ML pipeline using XGBoost and temporal feature
+  engineering
+  to reduce prediction error by 1.8 RMSE units (22%), enabling dynamic pricing
+  estimated to increase quarterly revenue by $1.4M for 10M+ annual trips
+  dataset."
+
+  Final Wisdom
+
+  - The best data scientists spend more time questioning answers than answering 
+  questions
+  - Your model is only as good as the weakest link in your data pipeline
+  - In production, simplicity and reliability beat cutting-edge performance
+  - A model that solves the wrong problem brilliantly is still a failure
+  - Your greatest asset is not your technical skill—it's your ability to learn 
+  what matters
+
+  This ends the strategy. Now go build something valuable. 🚖
+
+✻ Brewed for 6m 7s

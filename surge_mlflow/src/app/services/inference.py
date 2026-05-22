@@ -17,7 +17,7 @@ def make_prediction(input_data: dict) -> float:
         preprocessed_data = preprocess_input_data(input_data)
         
         # Get the model 
-        model = load_model(model_name="surge_prediction_model", stage="Production")
+        model = load_model(model_name="surge_prediction", stage="Production")
         
         # Predict
         prediction = model.predict(preprocessed_data)
